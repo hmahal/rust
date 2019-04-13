@@ -8,6 +8,7 @@ use rustc::infer::{InferCtxt, LateBoundRegionConversionTime};
 use rustc::infer::canonical::{Canonical, CanonicalVarValues};
 use rustc::traits::{
     DomainGoal,
+    WhereClause,
     Goal,
     GoalKind,
     Clause,
@@ -35,7 +36,9 @@ impl context::ResolventOps<ChalkArenas<'gcx>, ChalkArenas<'tcx>>
     ) -> Fallible<Canonical<'gcx, ChalkExClause<'gcx>>> {
         use chalk_engine::context::UnificationOps;
 
-        self.infcx.probe(|_| {
+        debug!("resolvent_clause(goal = {:?}, clause = {:?})", goal, clause);
+
+        let result = self.infcx.probe(|_| {
             let ProgramClause {
                 goal: consequence,
                 hypotheses,
@@ -49,8 +52,13 @@ impl context::ResolventOps<ChalkArenas<'gcx>, ChalkArenas<'tcx>>
                 ).0,
             };
 
-            let result = unify(self.infcx, *environment, goal, &consequence)
-                .map_err(|_| NoSolution)?;
+            let result = unify(
+                self.infcx,
+                *environment,
+                ty::Variance::Invariant,
+                goal,
+                &consequence
+            ).map_err(|_| NoSolution)?;
 
             let mut ex_clause = ExClause {
                 subst: subst.clone(),
@@ -68,9 +76,29 @@ impl context::ResolventOps<ChalkArenas<'gcx>, ChalkArenas<'tcx>>
                 })
             );
 
+            // If we have a goal of the form `T: 'a` or `'a: 'b`, then just
+            // assume it is true (no subgoals) and register it as a constraint
+            // instead.
+            match goal {
+                DomainGoal::Holds(WhereClause::RegionOutlives(pred)) => {
+                    assert_eq!(ex_clause.subgoals.len(), 0);
+                    ex_clause.constraints.push(ty::OutlivesPredicate(pred.0.into(), pred.1));
+                }
+
+                DomainGoal::Holds(WhereClause::TypeOutlives(pred)) => {
+                    assert_eq!(ex_clause.subgoals.len(), 0);
+                    ex_clause.constraints.push(ty::OutlivesPredicate(pred.0.into(), pred.1));
+                }
+
+                _ => (),
+            };
+
             let canonical_ex_clause = self.canonicalize_ex_clause(&ex_clause);
             Ok(canonical_ex_clause)
-        })
+        });
+
+        debug!("resolvent_clause: result = {:?}", result);
+        result
     }
 
     fn apply_answer_subst(
@@ -80,6 +108,12 @@ impl context::ResolventOps<ChalkArenas<'gcx>, ChalkArenas<'tcx>>
         answer_table_goal: &Canonical<'gcx, InEnvironment<'gcx, Goal<'gcx>>>,
         canonical_answer_subst: &Canonical<'gcx, ConstrainedSubst<'gcx>>,
     ) -> Fallible<ChalkExClause<'tcx>> {
+        debug!(
+            "apply_answer_subst(ex_clause = {:?}, selected_goal = {:?})",
+            self.infcx.resolve_type_vars_if_possible(&ex_clause),
+            self.infcx.resolve_type_vars_if_possible(selected_goal)
+        );
+
         let (answer_subst, _) = self.infcx.instantiate_canonical_with_fresh_inference_vars(
             DUMMY_SP,
             canonical_answer_subst
@@ -98,6 +132,8 @@ impl context::ResolventOps<ChalkArenas<'gcx>, ChalkArenas<'tcx>>
 
         let mut ex_clause = substitutor.ex_clause;
         ex_clause.constraints.extend(answer_subst.constraints);
+
+        debug!("apply_answer_subst: ex_clause = {:?}", ex_clause);
         Ok(ex_clause)
     }
 }
@@ -124,7 +160,7 @@ impl AnswerSubstitutor<'cx, 'gcx, 'tcx> {
         );
 
         super::into_ex_clause(
-            unify(self.infcx, self.environment, answer_param, pending)?,
+            unify(self.infcx, self.environment, ty::Variance::Invariant, answer_param, pending)?,
             &mut self.ex_clause
         );
 
@@ -168,6 +204,7 @@ impl TypeRelation<'cx, 'gcx, 'tcx> for AnswerSubstitutor<'cx, 'gcx, 'tcx> {
 
     fn tys(&mut self, a: Ty<'tcx>, b: Ty<'tcx>) -> RelateResult<'tcx, Ty<'tcx>> {
         let b = self.infcx.shallow_resolve(b);
+        debug!("AnswerSubstitutor::tys(a = {:?}, b = {:?})", a, b);
 
         if let &ty::Bound(debruijn, bound_ty) = &a.sty {
             // Free bound var

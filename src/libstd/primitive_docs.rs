@@ -1,13 +1,3 @@
-// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 #[doc(primitive = "bool")]
 #[doc(alias = "true")]
 #[doc(alias = "false")]
@@ -136,7 +126,7 @@ mod prim_bool { }
 ///
 /// ```ignore (string-from-str-error-type-is-not-never-yet)
 /// #[feature(exhaustive_patterns)]
-/// // NOTE: This does not work today!
+/// // NOTE: this does not work today!
 /// let Ok(s) = String::from_str("hello");
 /// ```
 ///
@@ -214,10 +204,10 @@ mod prim_bool { }
 /// #![feature(never_type)]
 /// # use std::fmt;
 /// # trait Debug {
-/// # fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result;
+/// # fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result;
 /// # }
 /// impl Debug for ! {
-///     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+///     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
 ///         *self
 ///     }
 /// }
@@ -312,7 +302,7 @@ mod prim_never { }
 /// ```text
 /// error: character literal may only contain one codepoint: 'é'
 /// let c = 'é';
-///         ^^^^
+///         ^^^
 /// ```
 ///
 /// Another implication of the 4-byte fixed size of a `char` is that
@@ -426,7 +416,7 @@ mod prim_unit { }
 /// ## 3. Get it from C.
 ///
 /// ```
-/// # #![feature(libc)]
+/// # #![feature(rustc_private)]
 /// extern crate libc;
 ///
 /// use std::mem;
@@ -560,7 +550,6 @@ mod prim_array { }
 #[doc(alias = "[")]
 #[doc(alias = "]")]
 #[doc(alias = "[]")]
-//
 /// A dynamically-sized view into a contiguous sequence, `[T]`.
 ///
 /// *[See also the `std::slice` module](slice/index.html).*
@@ -582,11 +571,11 @@ mod prim_array { }
 /// points to:
 ///
 /// ```
-/// let x = &mut [1, 2, 3];
+/// let mut x = [1, 2, 3];
+/// let x = &mut x[..]; // Take a full slice of `x`.
 /// x[1] = 7;
 /// assert_eq!(x, &[1, 7, 3]);
 /// ```
-///
 #[stable(feature = "rust1", since = "1.0.0")]
 mod prim_slice { }
 
@@ -933,7 +922,7 @@ mod prim_usize { }
 /// For more information on how to use references, see [the book's section on "References and
 /// Borrowing"][book-refs].
 ///
-/// [book-refs]: ../book/second-edition/ch04-02-references-and-borrowing.html
+/// [book-refs]: ../book/ch04-02-references-and-borrowing.html
 ///
 /// # Trait implementations
 ///
@@ -1073,7 +1062,7 @@ mod prim_ref { }
 /// On top of that, function pointers can vary based on what ABI they use. This is achieved by
 /// adding the `extern` keyword to the type name, followed by the ABI in question. For example,
 /// `fn()` is different from `extern "C" fn()`, which itself is different from `extern "stdcall"
-/// fn()`, and so on for the various ABIs that Rust supports.  Non-`extern` functions have an ABI
+/// fn()`, and so on for the various ABIs that Rust supports. Non-`extern` functions have an ABI
 /// of `"Rust"`, and `extern` functions without an explicit ABI have an ABI of `"C"`. For more
 /// information, see [the nomicon's section on foreign calling conventions][nomicon-abi].
 ///

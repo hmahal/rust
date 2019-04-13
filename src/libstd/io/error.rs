@@ -1,18 +1,8 @@
-// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-use error;
-use fmt;
-use result;
-use sys;
-use convert::From;
+use crate::error;
+use crate::fmt;
+use crate::result;
+use crate::sys;
+use crate::convert::From;
 
 /// A specialized [`Result`](../result/enum.Result.html) type for I/O
 /// operations.
@@ -69,7 +59,7 @@ pub struct Error {
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl fmt::Debug for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(&self.repr, f)
     }
 }
@@ -225,6 +215,9 @@ impl From<ErrorKind> for Error {
     /// let error = Error::from(not_found);
     /// assert_eq!("entity not found", format!("{}", error));
     /// ```
+    ///
+    /// [`ErrorKind`]: ../../std/io/enum.ErrorKind.html
+    /// [`Error`]: ../../std/io/struct.Error.html
     #[inline]
     fn from(kind: ErrorKind) -> Error {
         Error {
@@ -420,7 +413,7 @@ impl Error {
     /// }
     ///
     /// impl Display for MyError {
-    ///     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    ///     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     ///         write!(f, "MyError: {}", &self.v)
     ///     }
     /// }
@@ -519,7 +512,7 @@ impl Error {
 }
 
 impl fmt::Debug for Repr {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Repr::Os(code) =>
                 fmt.debug_struct("Os")
@@ -534,7 +527,7 @@ impl fmt::Debug for Repr {
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl fmt::Display for Error {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.repr {
             Repr::Os(code) => {
                 let detail = sys::os::error_string(code);
@@ -555,11 +548,20 @@ impl error::Error for Error {
         }
     }
 
+    #[allow(deprecated)]
     fn cause(&self) -> Option<&dyn error::Error> {
         match self.repr {
             Repr::Os(..) => None,
             Repr::Simple(..) => None,
             Repr::Custom(ref c) => c.error.cause(),
+        }
+    }
+
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        match self.repr {
+            Repr::Os(..) => None,
+            Repr::Simple(..) => None,
+            Repr::Custom(ref c) => c.error.source(),
         }
     }
 }
@@ -572,10 +574,10 @@ fn _assert_error_is_sync_send() {
 #[cfg(test)]
 mod test {
     use super::{Error, ErrorKind, Repr, Custom};
-    use error;
-    use fmt;
-    use sys::os::error_string;
-    use sys::decode_error_kind;
+    use crate::error;
+    use crate::fmt;
+    use crate::sys::os::error_string;
+    use crate::sys::decode_error_kind;
 
     #[test]
     fn test_debug_error() {
@@ -610,7 +612,7 @@ mod test {
         struct TestError;
 
         impl fmt::Display for TestError {
-            fn fmt(&self, _: &mut fmt::Formatter) -> fmt::Result {
+            fn fmt(&self, _: &mut fmt::Formatter<'_>) -> fmt::Result {
                 Ok(())
             }
         }

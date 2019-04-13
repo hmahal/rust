@@ -1,27 +1,18 @@
-// Copyright 2018 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-use clean::*;
+use crate::clean::*;
+use crate::core::DocContext;
+use crate::fold::DocFolder;
+use super::Pass;
 
 use rustc::util::nodemap::FxHashSet;
 use rustc::hir::def_id::DefId;
 
-use super::Pass;
-use core::DocContext;
-use fold::DocFolder;
+pub const COLLECT_TRAIT_IMPLS: Pass = Pass {
+    name: "collect-trait-impls",
+    pass: collect_trait_impls,
+    description: "retrieves trait impls for items in the crate",
+};
 
-pub const COLLECT_TRAIT_IMPLS: Pass =
-    Pass::early("collect-trait-impls", collect_trait_impls,
-                "retrieves trait impls for items in the crate");
-
-pub fn collect_trait_impls(krate: Crate, cx: &DocContext) -> Crate {
+pub fn collect_trait_impls(krate: Crate, cx: &DocContext<'_>) -> Crate {
     let mut synth = SyntheticImplCollector::new(cx);
     let mut krate = synth.fold_crate(krate);
 
@@ -128,7 +119,7 @@ pub fn collect_trait_impls(krate: Crate, cx: &DocContext) -> Crate {
     // doesn't work with it anyway, so pull them from the HIR map instead
     for &trait_did in cx.all_traits.iter() {
         for &impl_node in cx.tcx.hir().trait_impls(trait_did) {
-            let impl_did = cx.tcx.hir().local_def_id(impl_node);
+            let impl_did = cx.tcx.hir().local_def_id_from_hir_id(impl_node);
             inline::build_impl(cx, impl_did, &mut new_items);
         }
     }
@@ -147,13 +138,13 @@ pub fn collect_trait_impls(krate: Crate, cx: &DocContext) -> Crate {
     krate
 }
 
-struct SyntheticImplCollector<'a, 'tcx: 'a, 'rcx: 'a, 'cstore: 'rcx> {
-    cx: &'a DocContext<'a, 'tcx, 'rcx, 'cstore>,
+struct SyntheticImplCollector<'a, 'tcx> {
+    cx: &'a DocContext<'tcx>,
     impls: Vec<Item>,
 }
 
-impl<'a, 'tcx, 'rcx, 'cstore> SyntheticImplCollector<'a, 'tcx, 'rcx, 'cstore> {
-    fn new(cx: &'a DocContext<'a, 'tcx, 'rcx, 'cstore>) -> Self {
+impl<'a, 'tcx> SyntheticImplCollector<'a, 'tcx> {
+    fn new(cx: &'a DocContext<'tcx>) -> Self {
         SyntheticImplCollector {
             cx,
             impls: Vec::new(),
@@ -161,14 +152,14 @@ impl<'a, 'tcx, 'rcx, 'cstore> SyntheticImplCollector<'a, 'tcx, 'rcx, 'cstore> {
     }
 }
 
-impl<'a, 'tcx, 'rcx, 'cstore> DocFolder for SyntheticImplCollector<'a, 'tcx, 'rcx, 'cstore> {
+impl<'a, 'tcx> DocFolder for SyntheticImplCollector<'a, 'tcx> {
     fn fold_item(&mut self, i: Item) -> Option<Item> {
         if i.is_struct() || i.is_enum() || i.is_union() {
-            if let (Some(node_id), Some(name)) =
-                (self.cx.tcx.hir().as_local_node_id(i.def_id), i.name.clone())
+            if let (Some(hir_id), Some(name)) =
+                (self.cx.tcx.hir().as_local_hir_id(i.def_id), i.name.clone())
             {
-                self.impls.extend(get_auto_traits_with_node_id(self.cx, node_id, name.clone()));
-                self.impls.extend(get_blanket_impls_with_node_id(self.cx, node_id, name));
+                self.impls.extend(get_auto_traits_with_hir_id(self.cx, hir_id, name.clone()));
+                self.impls.extend(get_blanket_impls_with_hir_id(self.cx, hir_id, name));
             } else {
                 self.impls.extend(get_auto_traits_with_def_id(self.cx, i.def_id));
                 self.impls.extend(get_blanket_impls_with_def_id(self.cx, i.def_id));

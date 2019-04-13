@@ -1,13 +1,3 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Orphan checker: every impl either implements a trait defined in this
 //! crate or pertains to a type defined in this crate.
 
@@ -27,16 +17,16 @@ struct OrphanChecker<'cx, 'tcx: 'cx> {
 
 impl<'cx, 'tcx, 'v> ItemLikeVisitor<'v> for OrphanChecker<'cx, 'tcx> {
     /// Checks exactly one impl for orphan rules and other such
-    /// restrictions.  In this fn, it can happen that multiple errors
+    /// restrictions. In this fn, it can happen that multiple errors
     /// apply to a specific impl, so just return after reporting one
     /// to prevent inundating the user with a bunch of similar error
     /// reports.
     fn visit_item(&mut self, item: &hir::Item) {
-        let def_id = self.tcx.hir().local_def_id(item.id);
+        let def_id = self.tcx.hir().local_def_id_from_hir_id(item.hir_id);
         // "Trait" impl
         if let hir::ItemKind::Impl(.., Some(_), _, _) = item.node {
             debug!("coherence2::orphan check: trait impl {}",
-                   self.tcx.hir().node_to_string(item.id));
+                   self.tcx.hir().hir_to_string(item.hir_id));
             let trait_ref = self.tcx.impl_trait_ref(def_id).unwrap();
             let trait_def_id = trait_ref.def_id;
             let cm = self.tcx.sess.source_map();
@@ -50,7 +40,7 @@ impl<'cx, 'tcx, 'v> ItemLikeVisitor<'v> for OrphanChecker<'cx, 'tcx> {
                                      "only traits defined in the current crate can be \
                                       implemented for arbitrary types")
                         .span_label(sp, "impl doesn't use types inside crate")
-                        .note("the impl does not reference any types defined in this crate")
+                        .note("the impl does not reference only types defined in this crate")
                         .note("define and implement a trait or new type instead")
                         .emit();
                     return;
@@ -131,7 +121,7 @@ impl<'cx, 'tcx, 'v> ItemLikeVisitor<'v> for OrphanChecker<'cx, 'tcx> {
                                 format!("cross-crate traits with a default impl, like `{}`, \
                                          can only be implemented for a struct/enum type \
                                          defined in the current crate",
-                                        self.tcx.item_path_str(trait_def_id)),
+                                        self.tcx.def_path_str(trait_def_id)),
                                 "can't implement cross-crate trait for type in another crate"
                             ))
                         }
@@ -139,7 +129,7 @@ impl<'cx, 'tcx, 'v> ItemLikeVisitor<'v> for OrphanChecker<'cx, 'tcx> {
                     _ => {
                         Some((format!("cross-crate traits with a default impl, like `{}`, can \
                                        only be implemented for a struct/enum type, not `{}`",
-                                      self.tcx.item_path_str(trait_def_id),
+                                      self.tcx.def_path_str(trait_def_id),
                                       self_ty),
                               "can't implement cross-crate trait with a default impl for \
                                non-struct/enum type"))

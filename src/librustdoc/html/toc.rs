@@ -1,13 +1,3 @@
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Table-of-contents creation.
 
 use std::fmt;
@@ -68,7 +58,7 @@ impl TocBuilder {
     }
 
 
-    /// Convert into a true `Toc` struct.
+    /// Converts into a true `Toc` struct.
     pub fn into_toc(mut self) -> Toc {
         // we know all levels are >= 1.
         self.fold_until(0);
@@ -176,13 +166,13 @@ impl TocBuilder {
 }
 
 impl fmt::Debug for Toc {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(self, f)
     }
 }
 
 impl fmt::Display for Toc {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(fmt, "<ul>")?;
         for entry in &self.entries {
             // recursively format this table of contents (the

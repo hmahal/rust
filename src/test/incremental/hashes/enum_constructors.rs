@@ -1,14 +1,3 @@
-// Copyright 2016 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-
 // This test case tests the incremental compilation hash (ICH) implementation
 // for struct constructor expressions.
 
@@ -45,7 +34,7 @@ pub fn change_field_value_struct_like() -> Enum {
 }
 
 #[cfg(not(cfail1))]
-#[rustc_clean(cfg="cfail2", except="HirBody,MirOptimized,MirValidated")]
+#[rustc_clean(cfg="cfail2", except="HirBody,optimized_mir,mir_built")]
 #[rustc_clean(cfg="cfail3")]
 pub fn change_field_value_struct_like() -> Enum {
     Enum::Struct {
@@ -68,7 +57,7 @@ pub fn change_field_order_struct_like() -> Enum {
 }
 
 #[cfg(not(cfail1))]
-#[rustc_clean(cfg="cfail2", except="HirBody,TypeckTables")]
+#[rustc_clean(cfg="cfail2", except="HirBody,typeck_tables_of")]
 #[rustc_clean(cfg="cfail3")]
 // FIXME(michaelwoerister):Interesting. I would have thought that that changes the MIR. And it
 // would if it were not all constants
@@ -107,7 +96,7 @@ pub fn change_constructor_path_struct_like() {
 }
 
 #[cfg(not(cfail1))]
-#[rustc_clean(cfg="cfail2", except="HirBody,MirOptimized,MirValidated,TypeckTables")]
+#[rustc_clean(cfg="cfail2", except="HirBody,optimized_mir,mir_built,typeck_tables_of")]
 #[rustc_clean(cfg="cfail3")]
 pub fn change_constructor_path_struct_like() {
     let _ = Enum2::Struct {
@@ -130,7 +119,7 @@ pub fn change_constructor_variant_struct_like() {
 }
 
 #[cfg(not(cfail1))]
-#[rustc_clean(cfg="cfail2", except="HirBody,MirOptimized,MirValidated")]
+#[rustc_clean(cfg="cfail2", except="HirBody,optimized_mir,mir_built")]
 #[rustc_clean(cfg="cfail3")]
 pub fn change_constructor_variant_struct_like() {
     let _ = Enum2::Struct2 {
@@ -150,8 +139,8 @@ pub mod change_constructor_path_indirectly_struct_like {
 
     #[rustc_clean(
         cfg="cfail2",
-        except="FnSignature,Hir,HirBody,MirOptimized,MirValidated,\
-                TypeckTables"
+        except="fn_sig,Hir,HirBody,optimized_mir,mir_built,\
+                typeck_tables_of"
     )]
     #[rustc_clean(cfg="cfail3")]
     pub fn function() -> TheEnum {
@@ -172,7 +161,7 @@ pub mod change_constructor_variant_indirectly_struct_like {
     #[cfg(not(cfail1))]
     use super::Enum2::Struct2 as Variant;
 
-    #[rustc_clean(cfg="cfail2", except="HirBody,MirOptimized,MirValidated")]
+    #[rustc_clean(cfg="cfail2", except="HirBody,optimized_mir,mir_built")]
     #[rustc_clean(cfg="cfail3")]
     pub fn function() -> Enum2 {
         Variant {
@@ -191,7 +180,7 @@ pub fn change_field_value_tuple_like() -> Enum {
 }
 
 #[cfg(not(cfail1))]
-#[rustc_clean(cfg="cfail2", except="HirBody,MirOptimized,MirValidated")]
+#[rustc_clean(cfg="cfail2", except="HirBody,optimized_mir,mir_built")]
 #[rustc_clean(cfg="cfail3")]
 pub fn change_field_value_tuple_like() -> Enum {
     Enum::Tuple(0, 1, 3)
@@ -208,7 +197,7 @@ pub fn change_constructor_path_tuple_like() {
 #[cfg(not(cfail1))]
 #[rustc_clean(
     cfg="cfail2",
-    except="HirBody,MirOptimized,MirValidated,TypeckTables"
+    except="HirBody,optimized_mir,mir_built,typeck_tables_of"
 )]
 #[rustc_clean(cfg="cfail3")]
 pub fn change_constructor_path_tuple_like() {
@@ -226,7 +215,7 @@ pub fn change_constructor_variant_tuple_like() {
 #[cfg(not(cfail1))]
 #[rustc_clean(
     cfg="cfail2",
-    except="HirBody,MirOptimized,MirValidated,TypeckTables"
+    except="HirBody,optimized_mir,mir_built,typeck_tables_of"
 )]
 #[rustc_clean(cfg="cfail3")]
 pub fn change_constructor_variant_tuple_like() {
@@ -243,8 +232,8 @@ pub mod change_constructor_path_indirectly_tuple_like {
 
     #[rustc_clean(
         cfg="cfail2",
-        except="FnSignature,Hir,HirBody,MirOptimized,MirValidated,\
-                TypeckTables"
+        except="fn_sig,Hir,HirBody,optimized_mir,mir_built,\
+                typeck_tables_of"
     )]
     #[rustc_clean(cfg="cfail3")]
     pub fn function() -> TheEnum {
@@ -262,7 +251,7 @@ pub mod change_constructor_variant_indirectly_tuple_like {
     #[cfg(not(cfail1))]
     use super::Enum2::Tuple2 as Variant;
 
-    #[rustc_clean(cfg="cfail2", except="HirBody,MirOptimized,MirValidated,TypeckTables")]
+    #[rustc_clean(cfg="cfail2", except="HirBody,optimized_mir,mir_built,typeck_tables_of")]
     #[rustc_clean(cfg="cfail3")]
     pub fn function() -> Enum2 {
         Variant(0, 1, 2)
@@ -289,7 +278,7 @@ pub fn change_constructor_path_c_like() {
 }
 
 #[cfg(not(cfail1))]
-#[rustc_clean(cfg="cfail2", except="HirBody,MirOptimized,MirValidated,TypeckTables")]
+#[rustc_clean(cfg="cfail2", except="HirBody,optimized_mir,mir_built,typeck_tables_of")]
 #[rustc_clean(cfg="cfail3")]
 pub fn change_constructor_path_c_like() {
     let _ = Clike2::B;
@@ -304,7 +293,7 @@ pub fn change_constructor_variant_c_like() {
 }
 
 #[cfg(not(cfail1))]
-#[rustc_clean(cfg="cfail2", except="HirBody,MirOptimized,MirValidated")]
+#[rustc_clean(cfg="cfail2", except="HirBody,optimized_mir,mir_built")]
 #[rustc_clean(cfg="cfail3")]
 pub fn change_constructor_variant_c_like() {
     let _ = Clike::C;
@@ -320,8 +309,8 @@ pub mod change_constructor_path_indirectly_c_like {
 
     #[rustc_clean(
         cfg="cfail2",
-        except="FnSignature,Hir,HirBody,MirOptimized,MirValidated,\
-                TypeckTables"
+        except="fn_sig,Hir,HirBody,optimized_mir,mir_built,\
+                typeck_tables_of"
     )]
     #[rustc_clean(cfg="cfail3")]
     pub fn function() -> TheEnum {
@@ -339,7 +328,7 @@ pub mod change_constructor_variant_indirectly_c_like {
     #[cfg(not(cfail1))]
     use super::Clike::B as Variant;
 
-    #[rustc_clean(cfg="cfail2", except="HirBody,MirOptimized,MirValidated")]
+    #[rustc_clean(cfg="cfail2", except="HirBody,optimized_mir,mir_built")]
     #[rustc_clean(cfg="cfail3")]
     pub fn function() -> Clike {
         Variant

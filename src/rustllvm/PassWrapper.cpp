@@ -1,13 +1,3 @@
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 #include <stdio.h>
 
 #include <vector>
@@ -17,21 +7,15 @@
 
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
+#include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include "llvm/IR/AutoUpgrade.h"
 #include "llvm/IR/AssemblyAnnotationWriter.h"
+#include "llvm/IR/IntrinsicInst.h"
 #include "llvm/Support/CBindingWrapping.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Host.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
-
-#if LLVM_VERSION_GE(6, 0)
-#include "llvm/CodeGen/TargetSubtargetInfo.h"
-#include "llvm/IR/IntrinsicInst.h"
-#else
-#include "llvm/Target/TargetSubtargetInfo.h"
-#endif
-
 #include "llvm/Transforms/IPO/AlwaysInliner.h"
 #include "llvm/Transforms/IPO/FunctionImport.h"
 #include "llvm/Transforms/Utils/FunctionImportUtils.h"
@@ -198,13 +182,9 @@ GEN_SUBTARGETS
 
 extern "C" bool LLVMRustHasFeature(LLVMTargetMachineRef TM,
                                    const char *Feature) {
-#if LLVM_VERSION_GE(6, 0)
   TargetMachine *Target = unwrap(TM);
   const MCSubtargetInfo *MCInfo = Target->getMCSubtargetInfo();
   return MCInfo->checkFeatures(std::string("+") + Feature);
-#else
-  return false;
-#endif
 }
 
 enum class LLVMRustCodeModel {
@@ -392,13 +372,9 @@ extern "C" LLVMTargetMachineRef LLVMRustCreateTargetMachine(
     Options.ThreadModel = ThreadModel::Single;
   }
 
-#if LLVM_VERSION_GE(6, 0)
   Options.EmitStackSizeSection = EmitStackSizeSection;
 
   Optional<CodeModel::Model> CM;
-#else
-  CodeModel::Model CM = CodeModel::Model::Default;
-#endif
   if (RustCM != LLVMRustCodeModel::None)
     CM = fromRust(RustCM);
   TargetMachine *TM = TheTarget->createTargetMachine(
@@ -670,8 +646,9 @@ char RustPrintModulePass::ID = 0;
 INITIALIZE_PASS(RustPrintModulePass, "print-rust-module",
                 "Print rust module to stderr", false, false)
 
-extern "C" void LLVMRustPrintModule(LLVMPassManagerRef PMR, LLVMModuleRef M,
-                                    const char *Path, DemangleFn Demangle) {
+extern "C" LLVMRustResult
+LLVMRustPrintModule(LLVMPassManagerRef PMR, LLVMModuleRef M,
+                    const char *Path, DemangleFn Demangle) {
   llvm::legacy::PassManager *PM = unwrap<llvm::legacy::PassManager>(PMR);
   std::string ErrorInfo;
 
@@ -679,12 +656,18 @@ extern "C" void LLVMRustPrintModule(LLVMPassManagerRef PMR, LLVMModuleRef M,
   raw_fd_ostream OS(Path, EC, sys::fs::F_None);
   if (EC)
     ErrorInfo = EC.message();
+  if (ErrorInfo != "") {
+    LLVMRustSetLastError(ErrorInfo.c_str());
+    return LLVMRustResult::Failure;
+  }
 
   formatted_raw_ostream FOS(OS);
 
   PM->add(new RustPrintModulePass(FOS, Demangle));
 
   PM->run(*unwrap(M));
+
+  return LLVMRustResult::Success;
 }
 
 extern "C" void LLVMRustPrintPasses() {
@@ -813,7 +796,7 @@ struct LLVMRustThinLTOData {
   StringMap<GVSummaryMapTy> ModuleToDefinedGVSummaries;
 
 #if LLVM_VERSION_GE(7, 0)
-  LLVMRustThinLTOData() : Index(/* isPerformingAnalysis = */ false) {}
+  LLVMRustThinLTOData() : Index(/* HaveGVs = */ false) {}
 #endif
 };
 
@@ -889,7 +872,12 @@ LLVMRustCreateThinLTOData(LLVMRustThinLTOModule *modules,
   auto deadIsPrevailing = [&](GlobalValue::GUID G) {
     return PrevailingType::Unknown;
   };
+#if LLVM_VERSION_GE(8, 0)
+  computeDeadSymbolsWithConstProp(Ret->Index, Ret->GUIDPreservedSymbols,
+                                  deadIsPrevailing, /* ImportEnabled = */ true);
+#else
   computeDeadSymbols(Ret->Index, Ret->GUIDPreservedSymbols, deadIsPrevailing);
+#endif
 #else
   computeDeadSymbols(Ret->Index, Ret->GUIDPreservedSymbols);
 #endif
@@ -1111,10 +1099,10 @@ LLVMRustThinLTOBufferLen(const LLVMRustThinLTOBuffer *Buffer) {
 // processing.  We'll call this once per module optimized through ThinLTO, and
 // it'll be called concurrently on many threads.
 extern "C" LLVMModuleRef
-LLVMRustParseBitcodeForThinLTO(LLVMContextRef Context,
-                               const char *data,
-                               size_t len,
-                               const char *identifier) {
+LLVMRustParseBitcodeForLTO(LLVMContextRef Context,
+                           const char *data,
+                           size_t len,
+                           const char *identifier) {
   StringRef Data(data, len);
   MemoryBufferRef Buffer(Data, identifier);
   unwrap(Context)->enableDebugTypeODRUniquing();

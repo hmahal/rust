@@ -1,37 +1,31 @@
-// Copyright 2013-2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-// ignore-tidy-linelength
-
 use foo::bar; //~ ERROR unresolved import `foo` [E0432]
               //~^ maybe a missing `extern crate foo;`?
 
 use bar::Baz as x; //~ ERROR unresolved import `bar::Baz` [E0432]
-                   //~^ no `Baz` in `bar`. Did you mean to use `Bar`?
+                   //~| no `Baz` in `bar`
+                   //~| HELP a similar name exists in the module
+                   //~| SUGGESTION Bar
 
 use food::baz; //~ ERROR unresolved import `food::baz`
-               //~^ no `baz` in `food`. Did you mean to use `bag`?
+               //~| no `baz` in `food`
+               //~| HELP a similar name exists in the module
+               //~| SUGGESTION bag
 
 use food::{beens as Foo}; //~ ERROR unresolved import `food::beens` [E0432]
-                          //~^ no `beens` in `food`. Did you mean to use `beans`?
+                          //~| no `beens` in `food`
+                          //~| HELP a similar name exists in the module
+                          //~| SUGGESTION beans
 
 mod bar {
     pub struct Bar;
 }
 
 mod food {
-    pub use self::zug::baz::{self as bag, foobar as beans};
+    pub use self::zug::baz::{self as bag, Foobar as beans};
 
     mod zug {
         pub mod baz {
-            pub struct foobar;
+            pub struct Foobar;
         }
     }
 }
@@ -42,7 +36,8 @@ mod m {
     }
 
     use MyEnum::*; //~ ERROR unresolved import `MyEnum` [E0432]
-                   //~^ did you mean `self::MyEnum`?
+                   //~| HELP a similar path exists
+                   //~| SUGGESTION self::MyEnum
 }
 
 mod items {
@@ -51,7 +46,8 @@ mod items {
     }
 
     use Enum::*; //~ ERROR unresolved import `Enum` [E0432]
-                 //~^ did you mean `self::Enum`?
+                 //~| HELP a similar path exists
+                 //~| SUGGESTION self::Enum
 
     fn item() {}
 }

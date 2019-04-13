@@ -1,17 +1,7 @@
-// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! See docs in build/expr/mod.rs
 
-use build::{BlockAnd, BlockAndExtension, Builder};
-use hair::*;
+use crate::build::{BlockAnd, BlockAndExtension, Builder};
+use crate::hair::*;
 use rustc::middle::region;
 use rustc::mir::*;
 
@@ -83,7 +73,7 @@ impl<'a, 'gcx, 'tcx> Builder<'a, 'gcx, 'tcx> {
             );
         }
 
-        unpack!(block = this.into(&Place::Local(temp), block, expr));
+        unpack!(block = this.into(&Place::Base(PlaceBase::Local(temp)), block, expr));
 
         // In constants, temp_lifetime is None for temporaries that live for the
         // 'static lifetime. Thus we do not drop these temporaries and simply leak them.
@@ -98,7 +88,7 @@ impl<'a, 'gcx, 'tcx> Builder<'a, 'gcx, 'tcx> {
             this.schedule_drop_storage_and_value(
                 expr_span,
                 temp_lifetime,
-                &Place::Local(temp),
+                &Place::Base(PlaceBase::Local(temp)),
                 expr_ty,
             );
         }

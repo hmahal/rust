@@ -1,13 +1,3 @@
-// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Shareable mutable containers.
 //!
 //! Rust memory safety is based on this rule: Given an object `T`, it is only possible to
@@ -140,7 +130,7 @@
 //!
 //! This is simply a special - but common - case of the previous: hiding mutability for operations
 //! that appear to be immutable. The `clone` method is expected to not change the source value, and
-//! is declared to take `&self`, not `&mut self`. Therefore any mutation that happens in the
+//! is declared to take `&self`, not `&mut self`. Therefore, any mutation that happens in the
 //! `clone` method must use cell types. For example, `Rc<T>` maintains its reference counts within a
 //! `Cell<T>`.
 //!
@@ -712,8 +702,6 @@ impl<T> RefCell<T> {
     /// Replaces the wrapped value with a new one computed from `f`, returning
     /// the old value, without deinitializing either one.
     ///
-    /// This function corresponds to [`std::mem::replace`](../mem/fn.replace.html).
-    ///
     /// # Panics
     ///
     /// Panics if the value is currently borrowed.
@@ -721,7 +709,6 @@ impl<T> RefCell<T> {
     /// # Examples
     ///
     /// ```
-    /// #![feature(refcell_replace_swap)]
     /// use std::cell::RefCell;
     /// let cell = RefCell::new(5);
     /// let old_value = cell.replace_with(|&mut old| old + 1);
@@ -729,7 +716,7 @@ impl<T> RefCell<T> {
     /// assert_eq!(cell, RefCell::new(6));
     /// ```
     #[inline]
-    #[unstable(feature = "refcell_replace_swap", issue="43570")]
+    #[stable(feature = "refcell_replace_swap", since="1.35.0")]
     pub fn replace_with<F: FnOnce(&mut T) -> T>(&self, f: F) -> T {
         let mut_borrow = &mut *self.borrow_mut();
         let replacement = f(mut_borrow);
@@ -968,6 +955,44 @@ impl<T: ?Sized> RefCell<T> {
             &mut *self.value.get()
         }
     }
+
+    /// Immutably borrows the wrapped value, returning an error if the value is
+    /// currently mutably borrowed.
+    ///
+    /// # Safety
+    ///
+    /// Unlike `RefCell::borrow`, this method is unsafe because it does not
+    /// return a `Ref`, thus leaving the borrow flag untouched. Mutably
+    /// borrowing the `RefCell` while the reference returned by this method
+    /// is alive is undefined behaviour.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// #![feature(borrow_state)]
+    /// use std::cell::RefCell;
+    ///
+    /// let c = RefCell::new(5);
+    ///
+    /// {
+    ///     let m = c.borrow_mut();
+    ///     assert!(unsafe { c.try_borrow_unguarded() }.is_err());
+    /// }
+    ///
+    /// {
+    ///     let m = c.borrow();
+    ///     assert!(unsafe { c.try_borrow_unguarded() }.is_ok());
+    /// }
+    /// ```
+    #[unstable(feature = "borrow_state", issue = "27733")]
+    #[inline]
+    pub unsafe fn try_borrow_unguarded(&self) -> Result<&T, BorrowError> {
+        if !is_writing(self.borrow.get()) {
+            Ok(&*self.value.get())
+        } else {
+            Err(BorrowError { _private: () })
+        }
+    }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -1143,7 +1168,7 @@ impl<'b, T: ?Sized> Ref<'b, T> {
     /// The `RefCell` is already immutably borrowed, so this cannot fail.
     ///
     /// This is an associated function that needs to be used as
-    /// `Ref::clone(...)`.  A `Clone` implementation or a method would interfere
+    /// `Ref::clone(...)`. A `Clone` implementation or a method would interfere
     /// with the widespread use of `r.borrow().clone()` to clone the contents of
     /// a `RefCell`.
     #[stable(feature = "cell_extras", since = "1.15.0")]
@@ -1155,7 +1180,7 @@ impl<'b, T: ?Sized> Ref<'b, T> {
         }
     }
 
-    /// Make a new `Ref` for a component of the borrowed data.
+    /// Makes a new `Ref` for a component of the borrowed data.
     ///
     /// The `RefCell` is already immutably borrowed, so this cannot fail.
     ///
@@ -1184,7 +1209,7 @@ impl<'b, T: ?Sized> Ref<'b, T> {
         }
     }
 
-    /// Split a `Ref` into multiple `Ref`s for different components of the
+    /// Splits a `Ref` into multiple `Ref`s for different components of the
     /// borrowed data.
     ///
     /// The `RefCell` is already immutably borrowed, so this cannot fail.
@@ -1196,7 +1221,6 @@ impl<'b, T: ?Sized> Ref<'b, T> {
     /// # Examples
     ///
     /// ```
-    /// #![feature(refcell_map_split)]
     /// use std::cell::{Ref, RefCell};
     ///
     /// let cell = RefCell::new([1, 2, 3, 4]);
@@ -1205,7 +1229,7 @@ impl<'b, T: ?Sized> Ref<'b, T> {
     /// assert_eq!(*begin, [1, 2]);
     /// assert_eq!(*end, [3, 4]);
     /// ```
-    #[unstable(feature = "refcell_map_split", issue = "51476")]
+    #[stable(feature = "refcell_map_split", since = "1.35.0")]
     #[inline]
     pub fn map_split<U: ?Sized, V: ?Sized, F>(orig: Ref<'b, T>, f: F) -> (Ref<'b, U>, Ref<'b, V>)
         where F: FnOnce(&T) -> (&U, &V)
@@ -1227,13 +1251,13 @@ impl<T: ?Sized + fmt::Display> fmt::Display for Ref<'_, T> {
 }
 
 impl<'b, T: ?Sized> RefMut<'b, T> {
-    /// Make a new `RefMut` for a component of the borrowed data, e.g., an enum
+    /// Makes a new `RefMut` for a component of the borrowed data, e.g., an enum
     /// variant.
     ///
     /// The `RefCell` is already mutably borrowed, so this cannot fail.
     ///
     /// This is an associated function that needs to be used as
-    /// `RefMut::map(...)`.  A method would interfere with methods of the same
+    /// `RefMut::map(...)`. A method would interfere with methods of the same
     /// name on the contents of a `RefCell` used through `Deref`.
     ///
     /// # Examples
@@ -1263,7 +1287,7 @@ impl<'b, T: ?Sized> RefMut<'b, T> {
         }
     }
 
-    /// Split a `RefMut` into multiple `RefMut`s for different components of the
+    /// Splits a `RefMut` into multiple `RefMut`s for different components of the
     /// borrowed data.
     ///
     /// The underlying `RefCell` will remain mutably borrowed until both
@@ -1278,7 +1302,6 @@ impl<'b, T: ?Sized> RefMut<'b, T> {
     /// # Examples
     ///
     /// ```
-    /// #![feature(refcell_map_split)]
     /// use std::cell::{RefCell, RefMut};
     ///
     /// let cell = RefCell::new([1, 2, 3, 4]);
@@ -1289,7 +1312,7 @@ impl<'b, T: ?Sized> RefMut<'b, T> {
     /// begin.copy_from_slice(&[4, 3]);
     /// end.copy_from_slice(&[2, 1]);
     /// ```
-    #[unstable(feature = "refcell_map_split", issue = "51476")]
+    #[stable(feature = "refcell_map_split", since = "1.35.0")]
     #[inline]
     pub fn map_split<U: ?Sized, V: ?Sized, F>(
         orig: RefMut<'b, T>, f: F
@@ -1426,14 +1449,13 @@ impl<T: ?Sized + fmt::Display> fmt::Display for RefMut<'_, T> {
 /// co-exist with it. A `&mut T` must always be unique.
 ///
 /// Note that while mutating or mutably aliasing the contents of an `&UnsafeCell<T>` is
-/// okay (provided you enforce the invariants some other way), it is still undefined behavior
+/// ok (provided you enforce the invariants some other way), it is still undefined behavior
 /// to have multiple `&mut UnsafeCell<T>` aliases.
 ///
 /// # Examples
 ///
 /// ```
 /// use std::cell::UnsafeCell;
-/// use std::marker::Sync;
 ///
 /// # #[allow(dead_code)]
 /// struct NotThreadSafe<T> {

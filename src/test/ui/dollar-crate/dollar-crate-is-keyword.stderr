@@ -1,23 +1,23 @@
 error: expected identifier, found reserved identifier `$crate`
-  --> $DIR/dollar-crate-is-keyword.rs:16:20
+  --> $DIR/dollar-crate-is-keyword.rs:6:20
    |
-LL |             struct $crate {} //~ ERROR expected identifier, found reserved identifier `$crate`
+LL |             struct $crate {}
    |                    ^^^^^^ expected identifier, found reserved identifier
 ...
 LL | m!();
    | ----- in this macro invocation
 
 error: expected identifier, found reserved identifier `$crate`
-  --> $DIR/dollar-crate-is-keyword.rs:21:23
+  --> $DIR/dollar-crate-is-keyword.rs:11:23
    |
-LL |         use $crate as $crate; //~ ERROR expected identifier, found reserved identifier `$crate`
+LL |         use $crate as $crate;
    |                       ^^^^^^ expected identifier, found reserved identifier
 ...
 LL | m!();
    | ----- in this macro invocation
 
 warning: `$crate` may not be imported
-  --> $DIR/dollar-crate-is-keyword.rs:19:9
+  --> $DIR/dollar-crate-is-keyword.rs:9:9
    |
 LL |         use $crate; // OK
    |         ^^^^^^^^^^^
@@ -28,9 +28,9 @@ LL | m!();
    = note: `use $crate;` was erroneously allowed and will become a hard error in a future release
 
 warning: `$crate` may not be imported
-  --> $DIR/dollar-crate-is-keyword.rs:21:9
+  --> $DIR/dollar-crate-is-keyword.rs:11:9
    |
-LL |         use $crate as $crate; //~ ERROR expected identifier, found reserved identifier `$crate`
+LL |         use $crate as $crate;
    |         ^^^^^^^^^^^^^^^^^^^^^
 ...
 LL | m!();

@@ -1,13 +1,3 @@
-// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Machinery for hygienic macros, inspired by the `MTWT[1]` paper.
 //!
 //! `[1]` Matthew Flatt, Ryan Culpepper, David Darais, and Robert Bruce Findler. 2012.
@@ -15,14 +5,15 @@
 //! and definition contexts*. J. Funct. Program. 22, 2 (March 2012), 181-216.
 //! DOI=10.1017/S0956796812000093 <https://doi.org/10.1017/S0956796812000093>
 
-use GLOBALS;
-use Span;
-use edition::{Edition, DEFAULT_EDITION};
-use symbol::Symbol;
+use crate::GLOBALS;
+use crate::Span;
+use crate::edition::{Edition, DEFAULT_EDITION};
+use crate::symbol::{keywords, Symbol};
 
 use serialize::{Encodable, Decodable, Encoder, Decoder};
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
-use std::fmt;
+use rustc_data_structures::sync::Lrc;
+use std::{fmt, mem};
 
 /// A SyntaxContext represents a chain of macro expansions (represented by marks).
 #[derive(Clone, Copy, PartialEq, Eq, Default, PartialOrd, Ord, Hash)]
@@ -37,9 +28,11 @@ struct SyntaxContextData {
     opaque: SyntaxContext,
     // This context, but with all transparent marks filtered away.
     opaque_and_semitransparent: SyntaxContext,
+    // Name of the crate to which `$crate` with this context would resolve.
+    dollar_crate_name: Symbol,
 }
 
-/// A mark is a unique id associated with a macro expansion.
+/// A mark is a unique ID associated with a macro expansion.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, RustcEncodable, RustcDecodable)]
 pub struct Mark(u32);
 
@@ -47,7 +40,6 @@ pub struct Mark(u32);
 struct MarkData {
     parent: Mark,
     default_transparency: Transparency,
-    is_builtin: bool,
     expn_info: Option<ExpnInfo>,
 }
 
@@ -77,7 +69,6 @@ impl Mark {
                 parent,
                 // By default expansions behave like `macro_rules`.
                 default_transparency: Transparency::SemiTransparent,
-                is_builtin: false,
                 expn_info: None,
             });
             Mark(data.marks.len() as u32 - 1)
@@ -119,18 +110,6 @@ impl Mark {
     pub fn set_default_transparency(self, transparency: Transparency) {
         assert_ne!(self, Mark::root());
         HygieneData::with(|data| data.marks[self.0 as usize].default_transparency = transparency)
-    }
-
-    #[inline]
-    pub fn is_builtin(self) -> bool {
-        assert_ne!(self, Mark::root());
-        HygieneData::with(|data| data.marks[self.0 as usize].is_builtin)
-    }
-
-    #[inline]
-    pub fn set_is_builtin(self, is_builtin: bool) {
-        assert_ne!(self, Mark::root());
-        HygieneData::with(|data| data.marks[self.0 as usize].is_builtin = is_builtin)
     }
 
     pub fn is_descendant_of(mut self, ancestor: Mark) -> bool {
@@ -206,7 +185,6 @@ impl HygieneData {
                 // If the root is opaque, then loops searching for an opaque mark
                 // will automatically stop after reaching it.
                 default_transparency: Transparency::Opaque,
-                is_builtin: true,
                 expn_info: None,
             }],
             syntax_contexts: vec![SyntaxContextData {
@@ -215,6 +193,7 @@ impl HygieneData {
                 prev_ctxt: SyntaxContext(0),
                 opaque: SyntaxContext(0),
                 opaque_and_semitransparent: SyntaxContext(0),
+                dollar_crate_name: keywords::DollarCrate.name(),
             }],
             markings: FxHashMap::default(),
             default_edition: DEFAULT_EDITION,
@@ -262,7 +241,6 @@ impl SyntaxContext {
             data.marks.push(MarkData {
                 parent: Mark::root(),
                 default_transparency: Transparency::SemiTransparent,
-                is_builtin: false,
                 expn_info: Some(expansion_info),
             });
 
@@ -274,6 +252,7 @@ impl SyntaxContext {
                 prev_ctxt: SyntaxContext::empty(),
                 opaque: SyntaxContext::empty(),
                 opaque_and_semitransparent: SyntaxContext::empty(),
+                dollar_crate_name: keywords::DollarCrate.name(),
             });
             SyntaxContext(data.syntax_contexts.len() as u32 - 1)
         })
@@ -340,6 +319,7 @@ impl SyntaxContext {
                         prev_ctxt,
                         opaque: new_opaque,
                         opaque_and_semitransparent: new_opaque,
+                        dollar_crate_name: keywords::DollarCrate.name(),
                     });
                     new_opaque
                 });
@@ -357,6 +337,7 @@ impl SyntaxContext {
                         prev_ctxt,
                         opaque,
                         opaque_and_semitransparent: new_opaque_and_semitransparent,
+                        dollar_crate_name: keywords::DollarCrate.name(),
                     });
                     new_opaque_and_semitransparent
                 });
@@ -372,6 +353,7 @@ impl SyntaxContext {
                     prev_ctxt,
                     opaque,
                     opaque_and_semitransparent,
+                    dollar_crate_name: keywords::DollarCrate.name(),
                 });
                 new_opaque_and_semitransparent_and_transparent
             })
@@ -526,10 +508,25 @@ impl SyntaxContext {
     pub fn outer(self) -> Mark {
         HygieneData::with(|data| data.syntax_contexts[self.0 as usize].outer_mark)
     }
+
+    pub fn dollar_crate_name(self) -> Symbol {
+        HygieneData::with(|data| data.syntax_contexts[self.0 as usize].dollar_crate_name)
+    }
+
+    pub fn set_dollar_crate_name(self, dollar_crate_name: Symbol) {
+        HygieneData::with(|data| {
+            let prev_dollar_crate_name = mem::replace(
+                &mut data.syntax_contexts[self.0 as usize].dollar_crate_name, dollar_crate_name
+            );
+            assert!(dollar_crate_name == prev_dollar_crate_name ||
+                    prev_dollar_crate_name == keywords::DollarCrate.name(),
+                    "$crate name is reset for a syntax context");
+        })
+    }
 }
 
 impl fmt::Debug for SyntaxContext {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "#{}", self.0)
     }
 }
@@ -554,10 +551,10 @@ pub struct ExpnInfo {
     pub def_site: Option<Span>,
     /// The format with which the macro was invoked.
     pub format: ExpnFormat,
-    /// Whether the macro is allowed to use #[unstable]/feature-gated
-    /// features internally without forcing the whole crate to opt-in
+    /// List of #[unstable]/feature-gated features that the macro is allowed to use
+    /// internally without forcing the whole crate to opt-in
     /// to them.
-    pub allow_internal_unstable: bool,
+    pub allow_internal_unstable: Option<Lrc<[Symbol]>>,
     /// Whether the macro is allowed to use `unsafe` internally
     /// even if the user crate has `#![forbid(unsafe_code)]`.
     pub allow_internal_unsafe: bool,
@@ -594,7 +591,7 @@ pub enum CompilerDesugaringKind {
     QuestionMark,
     TryBlock,
     /// Desugaring of an `impl Trait` in return type position
-    /// to an `existential type Foo: Trait;` + replacing the
+    /// to an `existential type Foo: Trait;` and replacing the
     /// `impl Trait` with `Foo`.
     ExistentialReturnType,
     Async,

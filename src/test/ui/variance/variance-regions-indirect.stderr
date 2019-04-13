@@ -1,7 +1,7 @@
 error[E0208]: [+, -, o, *]
-  --> $DIR/variance-regions-indirect.rs:18:1
+  --> $DIR/variance-regions-indirect.rs:8:1
    |
-LL | / enum Base<'a, 'b, 'c:'b, 'd> { //~ ERROR [+, -, o, *]
+LL | / enum Base<'a, 'b, 'c:'b, 'd> {
 LL | |     Test8A(extern "Rust" fn(&'a isize)),
 LL | |     Test8B(&'b [isize]),
 LL | |     Test8C(&'b mut &'c str),
@@ -9,33 +9,33 @@ LL | | }
    | |_^
 
 error[E0208]: [*, o, -, +]
-  --> $DIR/variance-regions-indirect.rs:25:1
+  --> $DIR/variance-regions-indirect.rs:15:1
    |
-LL | / struct Derived1<'w, 'x:'y, 'y, 'z> { //~ ERROR [*, o, -, +]
+LL | / struct Derived1<'w, 'x:'y, 'y, 'z> {
 LL | |     f: Base<'z, 'y, 'x, 'w>
 LL | | }
    | |_^
 
 error[E0208]: [o, o, *]
-  --> $DIR/variance-regions-indirect.rs:30:1
+  --> $DIR/variance-regions-indirect.rs:20:1
    |
-LL | / struct Derived2<'a, 'b:'a, 'c> { //~ ERROR [o, o, *]
+LL | / struct Derived2<'a, 'b:'a, 'c> {
 LL | |     f: Base<'a, 'a, 'b, 'c>
 LL | | }
    | |_^
 
 error[E0208]: [o, -, *]
-  --> $DIR/variance-regions-indirect.rs:35:1
+  --> $DIR/variance-regions-indirect.rs:25:1
    |
-LL | / struct Derived3<'a:'b, 'b, 'c> { //~ ERROR [o, -, *]
+LL | / struct Derived3<'a:'b, 'b, 'c> {
 LL | |     f: Base<'a, 'b, 'a, 'c>
 LL | | }
    | |_^
 
 error[E0208]: [+, -, o]
-  --> $DIR/variance-regions-indirect.rs:40:1
+  --> $DIR/variance-regions-indirect.rs:30:1
    |
-LL | / struct Derived4<'a, 'b, 'c:'b> { //~ ERROR [+, -, o]
+LL | / struct Derived4<'a, 'b, 'c:'b> {
 LL | |     f: Base<'a, 'b, 'c, 'a>
 LL | | }
    | |_^

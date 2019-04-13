@@ -1,24 +1,17 @@
-// Copyright 2016 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
+use crate::os::unix::prelude::*;
 
-use os::unix::prelude::*;
+use crate::ffi::{OsString, OsStr};
+use crate::fmt;
+use crate::io::{self, Error, SeekFrom};
+use crate::path::{Path, PathBuf};
+use crate::sync::Arc;
+use crate::sys::fd::FileDesc;
+use crate::sys::time::SystemTime;
+use crate::sys::{cvt, syscall};
+use crate::sys_common::{AsInner, FromInner};
 
-use ffi::{OsString, OsStr};
-use fmt;
-use io::{self, Error, ErrorKind, SeekFrom};
-use path::{Path, PathBuf};
-use sync::Arc;
-use sys::fd::FileDesc;
-use sys::time::SystemTime;
-use sys::{cvt, syscall};
-use sys_common::{AsInner, FromInner};
+pub use crate::sys_common::fs::copy;
+pub use crate::sys_common::fs::remove_dir_all;
 
 pub struct File(FileDesc);
 
@@ -133,7 +126,7 @@ impl FromInner<u32> for FilePermissions {
 }
 
 impl fmt::Debug for ReadDir {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // This will only be called from std::fs::ReadDir, which will add a "ReadDir()" frame.
         // Thus the result will be e g 'ReadDir("/home")'
         fmt::Debug::fmt(&*self.root, f)
@@ -351,7 +344,7 @@ impl FromInner<usize> for File {
 }
 
 impl fmt::Debug for File {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut b = f.debug_struct("File");
         b.field("fd", &self.0.raw());
         if let Ok(path) = self.path() {
@@ -402,27 +395,6 @@ pub fn rmdir(p: &Path) -> io::Result<()> {
     Ok(())
 }
 
-pub fn remove_dir_all(path: &Path) -> io::Result<()> {
-    let filetype = lstat(path)?.file_type();
-    if filetype.is_symlink() {
-        unlink(path)
-    } else {
-        remove_dir_all_recursive(path)
-    }
-}
-
-fn remove_dir_all_recursive(path: &Path) -> io::Result<()> {
-    for child in readdir(path)? {
-        let child = child?;
-        if child.file_type()?.is_dir() {
-            remove_dir_all_recursive(&child.path())?;
-        } else {
-            unlink(&child.path())?;
-        }
-    }
-    rmdir(path)
-}
-
 pub fn readlink(p: &Path) -> io::Result<PathBuf> {
     let fd = cvt(syscall::open(p.to_str().unwrap(),
                                syscall::O_CLOEXEC | syscall::O_SYMLINK | syscall::O_RDONLY))?;
@@ -464,20 +436,4 @@ pub fn canonicalize(p: &Path) -> io::Result<PathBuf> {
     let fd = cvt(syscall::open(p.to_str().unwrap(), syscall::O_CLOEXEC | syscall::O_STAT))?;
     let file = File(FileDesc::new(fd));
     file.path()
-}
-
-pub fn copy(from: &Path, to: &Path) -> io::Result<u64> {
-    use fs::{File, set_permissions};
-    if !from.is_file() {
-        return Err(Error::new(ErrorKind::InvalidInput,
-                              "the source path is not an existing regular file"))
-    }
-
-    let mut reader = File::open(from)?;
-    let mut writer = File::create(to)?;
-    let perm = reader.metadata()?.permissions();
-
-    let ret = io::copy(&mut reader, &mut writer)?;
-    set_permissions(to, perm)?;
-    Ok(ret)
 }

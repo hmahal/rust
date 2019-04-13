@@ -1,36 +1,26 @@
-// Copyright 2016 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Implementation of `std::os` functionality for unix systems
 
 #![allow(unused_imports)] // lots of cfg code here
 
-use libc::{self, c_char};
+use libc::c_char;
 
-use os::unix::prelude::*;
+use crate::os::unix::prelude::*;
 
-use error::Error as StdError;
-use ffi::{CStr, CString, OsStr, OsString};
-use fmt;
-use io::{self, Read, Write};
-use iter;
-use marker::PhantomData;
-use mem;
-use memchr;
-use path::{self, PathBuf};
-use ptr;
-use slice;
-use str;
-use sys_common::mutex::Mutex;
-use sys::{cvt, cvt_libc, fd, syscall};
-use vec;
+use crate::error::Error as StdError;
+use crate::ffi::{CStr, CString, OsStr, OsString};
+use crate::fmt;
+use crate::io::{self, Read, Write};
+use crate::iter;
+use crate::marker::PhantomData;
+use crate::mem;
+use crate::memchr;
+use crate::path::{self, PathBuf};
+use crate::ptr;
+use crate::slice;
+use crate::str;
+use crate::sys_common::mutex::Mutex;
+use crate::sys::{cvt, cvt_libc, fd, syscall};
+use crate::vec;
 
 extern {
     #[link_name = "__errno_location"]
@@ -68,7 +58,7 @@ pub struct SplitPaths<'a> {
                     fn(&'a [u8]) -> PathBuf>,
 }
 
-pub fn split_paths(unparsed: &OsStr) -> SplitPaths {
+pub fn split_paths(unparsed: &OsStr) -> SplitPaths<'_> {
     fn bytes_to_path(b: &[u8]) -> PathBuf {
         PathBuf::from(<OsStr as OsStrExt>::from_bytes(b))
     }
@@ -107,7 +97,7 @@ pub fn join_paths<I, T>(paths: I) -> Result<OsString, JoinPathsError>
 }
 
 impl fmt::Display for JoinPathsError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         "path segment contains separator `:`".fmt(f)
     }
 }
@@ -117,7 +107,7 @@ impl StdError for JoinPathsError {
 }
 
 pub fn current_exe() -> io::Result<PathBuf> {
-    use fs::File;
+    use crate::fs::File;
 
     let mut file = File::open("sys:exe")?;
 
@@ -228,13 +218,13 @@ pub fn page_size() -> usize {
 }
 
 pub fn temp_dir() -> PathBuf {
-    ::env::var_os("TMPDIR").map(PathBuf::from).unwrap_or_else(|| {
+    crate::env::var_os("TMPDIR").map(PathBuf::from).unwrap_or_else(|| {
         PathBuf::from("/tmp")
     })
 }
 
 pub fn home_dir() -> Option<PathBuf> {
-    return ::env::var_os("HOME").map(PathBuf::from);
+    return crate::env::var_os("HOME").map(PathBuf::from);
 }
 
 pub fn exit(code: i32) -> ! {

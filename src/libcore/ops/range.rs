@@ -1,13 +1,3 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 use fmt;
 use hash::{Hash, Hasher};
 
@@ -36,11 +26,13 @@ use hash::{Hash, Hasher};
 /// Used as a [slicing index], `RangeFull` produces the full array as a slice.
 ///
 /// ```
-/// let arr = [0, 1, 2, 3];
-/// assert_eq!(arr[ .. ], [0,1,2,3]);  // RangeFull
-/// assert_eq!(arr[ ..3], [0,1,2  ]);
-/// assert_eq!(arr[1.. ], [  1,2,3]);
-/// assert_eq!(arr[1..3], [  1,2  ]);
+/// let arr = [0, 1, 2, 3, 4];
+/// assert_eq!(arr[ ..  ], [0,1,2,3,4]);  // RangeFull
+/// assert_eq!(arr[ .. 3], [0,1,2    ]);
+/// assert_eq!(arr[ ..=3], [0,1,2,3  ]);
+/// assert_eq!(arr[1..  ], [  1,2,3,4]);
+/// assert_eq!(arr[1.. 3], [  1,2    ]);
+/// assert_eq!(arr[1..=3], [  1,2,3  ]);
 /// ```
 ///
 /// [`IntoIterator`]: ../iter/trait.Iterator.html
@@ -62,7 +54,7 @@ impl fmt::Debug for RangeFull {
 /// (`start..end`).
 ///
 /// The `Range` `start..end` contains all values with `x >= start` and
-/// `x < end`.  It is empty unless `start < end`.
+/// `x < end`. It is empty unless `start < end`.
 ///
 /// # Examples
 ///
@@ -70,14 +62,16 @@ impl fmt::Debug for RangeFull {
 /// assert_eq!((3..5), std::ops::Range { start: 3, end: 5 });
 /// assert_eq!(3 + 4 + 5, (3..6).sum());
 ///
-/// let arr = ['a', 'b', 'c', 'd'];
-/// assert_eq!(arr[ .. ], ['a', 'b', 'c', 'd']);
-/// assert_eq!(arr[ ..3], ['a', 'b', 'c',    ]);
-/// assert_eq!(arr[1.. ], [     'b', 'c', 'd']);
-/// assert_eq!(arr[1..3], [     'b', 'c'     ]);  // Range
+/// let arr = [0, 1, 2, 3, 4];
+/// assert_eq!(arr[ ..  ], [0,1,2,3,4]);
+/// assert_eq!(arr[ .. 3], [0,1,2    ]);
+/// assert_eq!(arr[ ..=3], [0,1,2,3  ]);
+/// assert_eq!(arr[1..  ], [  1,2,3,4]);
+/// assert_eq!(arr[1.. 3], [  1,2    ]);  // Range
+/// assert_eq!(arr[1..=3], [  1,2,3  ]);
 /// ```
 #[doc(alias = "..")]
-#[derive(Clone, PartialEq, Eq, Hash)]  // not Copy -- see #27186
+#[derive(Clone, PartialEq, Eq, Hash)] // not Copy -- see #27186
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct Range<Idx> {
     /// The lower bound of the range (inclusive).
@@ -91,7 +85,10 @@ pub struct Range<Idx> {
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<Idx: fmt::Debug> fmt::Debug for Range<Idx> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmt, "{:?}..{:?}", self.start, self.end)
+        self.start.fmt(fmt)?;
+        write!(fmt, "..")?;
+        self.end.fmt(fmt)?;
+        Ok(())
     }
 }
 
@@ -101,8 +98,6 @@ impl<Idx: PartialOrd<Idx>> Range<Idx> {
     /// # Examples
     ///
     /// ```
-    /// #![feature(range_contains)]
-    ///
     /// use std::f32;
     ///
     /// assert!(!(3..5).contains(&2));
@@ -118,7 +113,7 @@ impl<Idx: PartialOrd<Idx>> Range<Idx> {
     /// assert!(!(0.0..f32::NAN).contains(&0.5));
     /// assert!(!(f32::NAN..1.0).contains(&0.5));
     /// ```
-    #[unstable(feature = "range_contains", reason = "recently added as per RFC", issue = "32311")]
+    #[stable(feature = "range_contains", since = "1.35.0")]
     pub fn contains<U>(&self, item: &U) -> bool
     where
         Idx: PartialOrd<U>,
@@ -170,16 +165,18 @@ impl<Idx: PartialOrd<Idx>> Range<Idx> {
 /// assert_eq!((2..), std::ops::RangeFrom { start: 2 });
 /// assert_eq!(2 + 3 + 4, (2..).take(3).sum());
 ///
-/// let arr = [0, 1, 2, 3];
-/// assert_eq!(arr[ .. ], [0,1,2,3]);
-/// assert_eq!(arr[ ..3], [0,1,2  ]);
-/// assert_eq!(arr[1.. ], [  1,2,3]);  // RangeFrom
-/// assert_eq!(arr[1..3], [  1,2  ]);
+/// let arr = [0, 1, 2, 3, 4];
+/// assert_eq!(arr[ ..  ], [0,1,2,3,4]);
+/// assert_eq!(arr[ .. 3], [0,1,2    ]);
+/// assert_eq!(arr[ ..=3], [0,1,2,3  ]);
+/// assert_eq!(arr[1..  ], [  1,2,3,4]);  // RangeFrom
+/// assert_eq!(arr[1.. 3], [  1,2    ]);
+/// assert_eq!(arr[1..=3], [  1,2,3  ]);
 /// ```
 ///
 /// [`Iterator`]: ../iter/trait.IntoIterator.html
 #[doc(alias = "..")]
-#[derive(Clone, PartialEq, Eq, Hash)]  // not Copy -- see #27186
+#[derive(Clone, PartialEq, Eq, Hash)] // not Copy -- see #27186
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct RangeFrom<Idx> {
     /// The lower bound of the range (inclusive).
@@ -190,7 +187,9 @@ pub struct RangeFrom<Idx> {
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<Idx: fmt::Debug> fmt::Debug for RangeFrom<Idx> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmt, "{:?}..", self.start)
+        self.start.fmt(fmt)?;
+        write!(fmt, "..")?;
+        Ok(())
     }
 }
 
@@ -200,8 +199,6 @@ impl<Idx: PartialOrd<Idx>> RangeFrom<Idx> {
     /// # Examples
     ///
     /// ```
-    /// #![feature(range_contains)]
-    ///
     /// use std::f32;
     ///
     /// assert!(!(3..).contains(&2));
@@ -212,7 +209,7 @@ impl<Idx: PartialOrd<Idx>> RangeFrom<Idx> {
     /// assert!(!(0.0..).contains(&f32::NAN));
     /// assert!(!(f32::NAN..).contains(&0.5));
     /// ```
-    #[unstable(feature = "range_contains", reason = "recently added as per RFC", issue = "32311")]
+    #[stable(feature = "range_contains", since = "1.35.0")]
     pub fn contains<U>(&self, item: &U) -> bool
     where
         Idx: PartialOrd<U>,
@@ -250,11 +247,13 @@ impl<Idx: PartialOrd<Idx>> RangeFrom<Idx> {
 /// elements before the index indicated by `end`.
 ///
 /// ```
-/// let arr = [0, 1, 2, 3];
-/// assert_eq!(arr[ .. ], [0,1,2,3]);
-/// assert_eq!(arr[ ..3], [0,1,2  ]);  // RangeTo
-/// assert_eq!(arr[1.. ], [  1,2,3]);
-/// assert_eq!(arr[1..3], [  1,2  ]);
+/// let arr = [0, 1, 2, 3, 4];
+/// assert_eq!(arr[ ..  ], [0,1,2,3,4]);
+/// assert_eq!(arr[ .. 3], [0,1,2    ]);  // RangeTo
+/// assert_eq!(arr[ ..=3], [0,1,2,3  ]);
+/// assert_eq!(arr[1..  ], [  1,2,3,4]);
+/// assert_eq!(arr[1.. 3], [  1,2    ]);
+/// assert_eq!(arr[1..=3], [  1,2,3  ]);
 /// ```
 ///
 /// [`IntoIterator`]: ../iter/trait.Iterator.html
@@ -272,7 +271,9 @@ pub struct RangeTo<Idx> {
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<Idx: fmt::Debug> fmt::Debug for RangeTo<Idx> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmt, "..{:?}", self.end)
+        write!(fmt, "..")?;
+        self.end.fmt(fmt)?;
+        Ok(())
     }
 }
 
@@ -282,8 +283,6 @@ impl<Idx: PartialOrd<Idx>> RangeTo<Idx> {
     /// # Examples
     ///
     /// ```
-    /// #![feature(range_contains)]
-    ///
     /// use std::f32;
     ///
     /// assert!( (..5).contains(&-1_000_000_000));
@@ -294,7 +293,7 @@ impl<Idx: PartialOrd<Idx>> RangeTo<Idx> {
     /// assert!(!(..1.0).contains(&f32::NAN));
     /// assert!(!(..f32::NAN).contains(&0.5));
     /// ```
-    #[unstable(feature = "range_contains", reason = "recently added as per RFC", issue = "32311")]
+    #[stable(feature = "range_contains", since = "1.35.0")]
     pub fn contains<U>(&self, item: &U) -> bool
     where
         Idx: PartialOrd<U>,
@@ -307,7 +306,7 @@ impl<Idx: PartialOrd<Idx>> RangeTo<Idx> {
 /// A range bounded inclusively below and above (`start..=end`).
 ///
 /// The `RangeInclusive` `start..=end` contains all values with `x >= start`
-/// and `x <= end`.  It is empty unless `start <= end`.
+/// and `x <= end`. It is empty unless `start <= end`.
 ///
 /// This iterator is [fused], but the specific values of `start` and `end` after
 /// iteration has finished are **unspecified** other than that [`.is_empty()`]
@@ -322,12 +321,16 @@ impl<Idx: PartialOrd<Idx>> RangeTo<Idx> {
 /// assert_eq!((3..=5), std::ops::RangeInclusive::new(3, 5));
 /// assert_eq!(3 + 4 + 5, (3..=5).sum());
 ///
-/// let arr = [0, 1, 2, 3];
-/// assert_eq!(arr[ ..=2], [0,1,2  ]);
-/// assert_eq!(arr[1..=2], [  1,2  ]);  // RangeInclusive
+/// let arr = [0, 1, 2, 3, 4];
+/// assert_eq!(arr[ ..  ], [0,1,2,3,4]);
+/// assert_eq!(arr[ .. 3], [0,1,2    ]);
+/// assert_eq!(arr[ ..=3], [0,1,2,3  ]);
+/// assert_eq!(arr[1..  ], [  1,2,3,4]);
+/// assert_eq!(arr[1.. 3], [  1,2    ]);
+/// assert_eq!(arr[1..=3], [  1,2,3  ]);  // RangeInclusive
 /// ```
 #[doc(alias = "..=")]
-#[derive(Clone)]  // not Copy -- see #27186
+#[derive(Clone)] // not Copy -- see #27186
 #[stable(feature = "inclusive_range", since = "1.26.0")]
 pub struct RangeInclusive<Idx> {
     pub(crate) start: Idx,
@@ -344,12 +347,14 @@ pub struct RangeInclusive<Idx> {
 trait RangeInclusiveEquality: Sized {
     fn canonicalized_is_empty(range: &RangeInclusive<Self>) -> bool;
 }
+
 impl<T> RangeInclusiveEquality for T {
     #[inline]
     default fn canonicalized_is_empty(range: &RangeInclusive<Self>) -> bool {
         range.is_empty.unwrap_or_default()
     }
 }
+
 impl<T: PartialOrd> RangeInclusiveEquality for T {
     #[inline]
     fn canonicalized_is_empty(range: &RangeInclusive<Self>) -> bool {
@@ -361,7 +366,8 @@ impl<T: PartialOrd> RangeInclusiveEquality for T {
 impl<Idx: PartialEq> PartialEq for RangeInclusive<Idx> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
-        self.start == other.start && self.end == other.end
+        self.start == other.start
+            && self.end == other.end
             && RangeInclusiveEquality::canonicalized_is_empty(self)
                 == RangeInclusiveEquality::canonicalized_is_empty(other)
     }
@@ -393,7 +399,11 @@ impl<Idx> RangeInclusive<Idx> {
     #[inline]
     #[rustc_promotable]
     pub const fn new(start: Idx, end: Idx) -> Self {
-        Self { start, end, is_empty: None }
+        Self {
+            start,
+            end,
+            is_empty: None,
+        }
     }
 
     /// Returns the lower bound of the range (inclusive).
@@ -464,7 +474,10 @@ impl<Idx> RangeInclusive<Idx> {
 #[stable(feature = "inclusive_range", since = "1.26.0")]
 impl<Idx: fmt::Debug> fmt::Debug for RangeInclusive<Idx> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmt, "{:?}..={:?}", self.start, self.end)
+        self.start.fmt(fmt)?;
+        write!(fmt, "..=")?;
+        self.end.fmt(fmt)?;
+        Ok(())
     }
 }
 
@@ -474,8 +487,6 @@ impl<Idx: PartialOrd<Idx>> RangeInclusive<Idx> {
     /// # Examples
     ///
     /// ```
-    /// #![feature(range_contains)]
-    ///
     /// use std::f32;
     ///
     /// assert!(!(3..=5).contains(&2));
@@ -492,7 +503,7 @@ impl<Idx: PartialOrd<Idx>> RangeInclusive<Idx> {
     /// assert!(!(0.0..=f32::NAN).contains(&0.0));
     /// assert!(!(f32::NAN..=1.0).contains(&1.0));
     /// ```
-    #[unstable(feature = "range_contains", reason = "recently added as per RFC", issue = "32311")]
+    #[stable(feature = "range_contains", since = "1.35.0")]
     pub fn contains<U>(&self, item: &U) -> bool
     where
         Idx: PartialOrd<U>,
@@ -577,9 +588,13 @@ impl<Idx: PartialOrd<Idx>> RangeInclusive<Idx> {
 /// array elements up to and including the index indicated by `end`.
 ///
 /// ```
-/// let arr = [0, 1, 2, 3];
-/// assert_eq!(arr[ ..=2], [0,1,2  ]);  // RangeToInclusive
-/// assert_eq!(arr[1..=2], [  1,2  ]);
+/// let arr = [0, 1, 2, 3, 4];
+/// assert_eq!(arr[ ..  ], [0,1,2,3,4]);
+/// assert_eq!(arr[ .. 3], [0,1,2    ]);
+/// assert_eq!(arr[ ..=3], [0,1,2,3  ]);  // RangeToInclusive
+/// assert_eq!(arr[1..  ], [  1,2,3,4]);
+/// assert_eq!(arr[1.. 3], [  1,2    ]);
+/// assert_eq!(arr[1..=3], [  1,2,3  ]);
 /// ```
 ///
 /// [`IntoIterator`]: ../iter/trait.Iterator.html
@@ -597,19 +612,18 @@ pub struct RangeToInclusive<Idx> {
 #[stable(feature = "inclusive_range", since = "1.26.0")]
 impl<Idx: fmt::Debug> fmt::Debug for RangeToInclusive<Idx> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmt, "..={:?}", self.end)
+        write!(fmt, "..=")?;
+        self.end.fmt(fmt)?;
+        Ok(())
     }
 }
 
-#[unstable(feature = "range_contains", reason = "recently added as per RFC", issue = "32311")]
 impl<Idx: PartialOrd<Idx>> RangeToInclusive<Idx> {
     /// Returns `true` if `item` is contained in the range.
     ///
     /// # Examples
     ///
     /// ```
-    /// #![feature(range_contains)]
-    ///
     /// use std::f32;
     ///
     /// assert!( (..=5).contains(&-1_000_000_000));
@@ -620,7 +634,7 @@ impl<Idx: PartialOrd<Idx>> RangeToInclusive<Idx> {
     /// assert!(!(..=1.0).contains(&f32::NAN));
     /// assert!(!(..=f32::NAN).contains(&0.5));
     /// ```
-    #[unstable(feature = "range_contains", reason = "recently added as per RFC", issue = "32311")]
+    #[stable(feature = "range_contains", since = "1.35.0")]
     pub fn contains<U>(&self, item: &U) -> bool
     where
         Idx: PartialOrd<U>,
@@ -684,7 +698,7 @@ pub enum Bound<T> {
 
 #[stable(feature = "collections_range", since = "1.28.0")]
 /// `RangeBounds` is implemented by Rust's built-in range types, produced
-/// by range syntax like `..`, `a..`, `..b` or `c..d`.
+/// by range syntax like `..`, `a..`, `..b`, `..=c`, `d..e`, or `f..=g`.
 pub trait RangeBounds<T: ?Sized> {
     /// Start index bound.
     ///
@@ -722,14 +736,11 @@ pub trait RangeBounds<T: ?Sized> {
     #[stable(feature = "collections_range", since = "1.28.0")]
     fn end_bound(&self) -> Bound<&T>;
 
-
     /// Returns `true` if `item` is contained in the range.
     ///
     /// # Examples
     ///
     /// ```
-    /// #![feature(range_contains)]
-    ///
     /// use std::f32;
     ///
     /// assert!( (3..5).contains(&4));
@@ -739,7 +750,7 @@ pub trait RangeBounds<T: ?Sized> {
     /// assert!(!(0.0..1.0).contains(&f32::NAN));
     /// assert!(!(0.0..f32::NAN).contains(&0.5));
     /// assert!(!(f32::NAN..1.0).contains(&0.5));
-    #[unstable(feature = "range_contains", reason = "recently added as per RFC", issue = "32311")]
+    #[stable(feature = "range_contains", since = "1.35.0")]
     fn contains<U>(&self, item: &U) -> bool
     where
         T: PartialOrd<U>,
@@ -749,9 +760,7 @@ pub trait RangeBounds<T: ?Sized> {
             Included(ref start) => *start <= item,
             Excluded(ref start) => *start < item,
             Unbounded => true,
-        })
-        &&
-        (match self.end_bound() {
+        }) && (match self.end_bound() {
             Included(ref end) => item <= *end,
             Excluded(ref end) => item < *end,
             Unbounded => true,
@@ -827,7 +836,7 @@ impl<T> RangeBounds<T> for (Bound<T>, Bound<T>) {
         match *self {
             (Included(ref start), _) => Included(start),
             (Excluded(ref start), _) => Excluded(start),
-            (Unbounded, _)           => Unbounded,
+            (Unbounded, _) => Unbounded,
         }
     }
 
@@ -835,7 +844,7 @@ impl<T> RangeBounds<T> for (Bound<T>, Bound<T>) {
         match *self {
             (_, Included(ref end)) => Included(end),
             (_, Excluded(ref end)) => Excluded(end),
-            (_, Unbounded)         => Unbounded,
+            (_, Unbounded) => Unbounded,
         }
     }
 }

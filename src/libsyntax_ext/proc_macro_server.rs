@@ -1,14 +1,5 @@
-// Copyright 2018 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
+use errors::{Diagnostic, DiagnosticBuilder};
 
-use errors::{self, Diagnostic, DiagnosticBuilder};
 use std::panic;
 
 use proc_macro::bridge::{server, TokenTree};
@@ -21,7 +12,7 @@ use syntax::ast;
 use syntax::ext::base::ExtCtxt;
 use syntax::parse::lexer::comments;
 use syntax::parse::{self, token, ParseSess};
-use syntax::tokenstream::{self, DelimSpan, TokenStream};
+use syntax::tokenstream::{self, DelimSpan, IsJoint::*, TokenStream, TreeAndJoint};
 use syntax_pos::hygiene::{SyntaxContext, Transparency};
 use syntax_pos::symbol::{keywords, Symbol};
 use syntax_pos::{BytePos, FileName, MultiSpan, Pos, SourceFile, Span};
@@ -56,19 +47,20 @@ impl ToInternal<token::DelimToken> for Delimiter {
     }
 }
 
-impl FromInternal<(TokenStream, &'_ ParseSess, &'_ mut Vec<Self>)>
+impl FromInternal<(TreeAndJoint, &'_ ParseSess, &'_ mut Vec<Self>)>
     for TokenTree<Group, Punct, Ident, Literal>
 {
-    fn from_internal((stream, sess, stack): (TokenStream, &ParseSess, &mut Vec<Self>)) -> Self {
+    fn from_internal(((tree, is_joint), sess, stack): (TreeAndJoint, &ParseSess, &mut Vec<Self>))
+                    -> Self {
         use syntax::parse::token::*;
 
-        let (tree, joint) = stream.as_tree();
+        let joint = is_joint == Joint;
         let (span, token) = match tree {
-            tokenstream::TokenTree::Delimited(span, delimed) => {
-                let delimiter = Delimiter::from_internal(delimed.delim);
+            tokenstream::TokenTree::Delimited(span, delim, tts) => {
+                let delimiter = Delimiter::from_internal(delim);
                 return TokenTree::Group(Group {
                     delimiter,
-                    stream: delimed.tts.into(),
+                    stream: tts.into(),
                     span,
                 });
             }
@@ -76,34 +68,28 @@ impl FromInternal<(TokenStream, &'_ ParseSess, &'_ mut Vec<Self>)>
         };
 
         macro_rules! tt {
-            ($ty:ident { $($field:ident $(: $value:expr)*),+ $(,)* }) => (
+            ($ty:ident { $($field:ident $(: $value:expr)*),+ $(,)? }) => (
                 TokenTree::$ty(self::$ty {
                     $($field $(: $value)*,)*
                     span,
                 })
-            )
+            );
+            ($ty:ident::$method:ident($($value:expr),*)) => (
+                TokenTree::$ty(self::$ty::$method($($value,)* span))
+            );
         }
         macro_rules! op {
             ($a:expr) => {
-                tt!(Punct { ch: $a, joint })
+                tt!(Punct::new($a, joint))
             };
             ($a:expr, $b:expr) => {{
-                stack.push(tt!(Punct { ch: $b, joint }));
-                tt!(Punct {
-                    ch: $a,
-                    joint: true
-                })
+                stack.push(tt!(Punct::new($b, joint)));
+                tt!(Punct::new($a, true))
             }};
             ($a:expr, $b:expr, $c:expr) => {{
-                stack.push(tt!(Punct { ch: $c, joint }));
-                stack.push(tt!(Punct {
-                    ch: $b,
-                    joint: true
-                }));
-                tt!(Punct {
-                    ch: $a,
-                    joint: true
-                })
+                stack.push(tt!(Punct::new($c, joint)));
+                stack.push(tt!(Punct::new($b, true)));
+                tt!(Punct::new($a, true))
             }};
         }
 
@@ -156,20 +142,13 @@ impl FromInternal<(TokenStream, &'_ ParseSess, &'_ mut Vec<Self>)>
             Question => op!('?'),
             SingleQuote => op!('\''),
 
-            Ident(ident, is_raw) => tt!(Ident {
-                sym: ident.name,
-                is_raw
-            }),
+            Ident(ident, false) if ident.name == keywords::DollarCrate.name() =>
+                tt!(Ident::dollar_crate()),
+            Ident(ident, is_raw) => tt!(Ident::new(ident.name, is_raw)),
             Lifetime(ident) => {
                 let ident = ident.without_first_quote();
-                stack.push(tt!(Ident {
-                    sym: ident.name,
-                    is_raw: false
-                }));
-                tt!(Punct {
-                    ch: '\'',
-                    joint: true
-                })
+                stack.push(tt!(Ident::new(ident.name, false)));
+                tt!(Punct::new('\'', true))
             }
             Literal(lit, suffix) => tt!(Literal { lit, suffix }),
             DocComment(c) => {
@@ -193,19 +172,13 @@ impl FromInternal<(TokenStream, &'_ ParseSess, &'_ mut Vec<Self>)>
                     span: DelimSpan::from_single(span),
                 }));
                 if style == ast::AttrStyle::Inner {
-                    stack.push(tt!(Punct {
-                        ch: '!',
-                        joint: false
-                    }));
+                    stack.push(tt!(Punct::new('!', false)));
                 }
-                tt!(Punct {
-                    ch: '#',
-                    joint: false
-                })
+                tt!(Punct::new('#', false))
             }
 
-            Interpolated(_) => {
-                let stream = token.interpolated_to_tokenstream(sess, span);
+            Interpolated(nt) => {
+                let stream = nt.to_tokenstream(sess, span);
                 TokenTree::Group(Group {
                     delimiter: Delimiter::None,
                     stream,
@@ -232,14 +205,12 @@ impl ToInternal<TokenStream> for TokenTree<Group, Punct, Ident, Literal> {
             }) => {
                 return tokenstream::TokenTree::Delimited(
                     span,
-                    tokenstream::Delimited {
-                        delim: delimiter.to_internal(),
-                        tts: stream.into(),
-                    },
+                    delimiter.to_internal(),
+                    stream.into(),
                 )
                 .into();
             }
-            TokenTree::Ident(self::Ident { sym, span, is_raw }) => {
+            TokenTree::Ident(self::Ident { sym, is_raw, span }) => {
                 let token = Ident(ast::Ident::new(sym, span), is_raw);
                 return tokenstream::TokenTree::Token(span, token).into();
             }
@@ -299,11 +270,7 @@ impl ToInternal<TokenStream> for TokenTree<Group, Punct, Ident, Literal> {
         };
 
         let tree = tokenstream::TokenTree::Token(span, token);
-        if joint {
-            tree.joint()
-        } else {
-            tree.into()
-        }
+        TokenStream::new(vec![(tree, if joint { Joint } else { NonJoint })])
     }
 }
 
@@ -340,11 +307,48 @@ pub struct Punct {
     span: Span,
 }
 
+impl Punct {
+    fn new(ch: char, joint: bool, span: Span) -> Punct {
+        const LEGAL_CHARS: &[char] = &['=', '<', '>', '!', '~', '+', '-', '*', '/', '%', '^',
+                                       '&', '|', '@', '.', ',', ';', ':', '#', '$', '?', '\''];
+        if !LEGAL_CHARS.contains(&ch) {
+            panic!("unsupported character `{:?}`", ch)
+        }
+        Punct { ch, joint, span }
+    }
+}
+
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Ident {
     sym: Symbol,
-    span: Span,
     is_raw: bool,
+    span: Span,
+}
+
+impl Ident {
+    fn is_valid(string: &str) -> bool {
+        let mut chars = string.chars();
+        if let Some(start) = chars.next() {
+            (start == '_' || start.is_xid_start())
+                && chars.all(|cont| cont == '_' || cont.is_xid_continue())
+        } else {
+            false
+        }
+    }
+    fn new(sym: Symbol, is_raw: bool, span: Span) -> Ident {
+        let string = sym.as_str();
+        if !Self::is_valid(&string) {
+            panic!("`{:?}` is not a valid identifier", string)
+        }
+        if is_raw && !ast::Ident::from_interned_str(sym.as_interned_str()).can_be_raw() {
+            panic!("`{}` cannot be a raw identifier", string);
+        }
+        Ident { sym, is_raw, span }
+    }
+    fn dollar_crate(span: Span) -> Ident {
+        // `$crate` is accepted as an ident only if it comes from the compiler.
+        Ident { sym: keywords::DollarCrate.name(), is_raw: false, span }
+    }
 }
 
 // FIXME(eddyb) `Literal` should not expose internal `Debug` impls.
@@ -362,7 +366,7 @@ pub(crate) struct Rustc<'a> {
 }
 
 impl<'a> Rustc<'a> {
-    pub fn new(cx: &'a ExtCtxt) -> Self {
+    pub fn new(cx: &'a ExtCtxt<'_>) -> Self {
         // No way to determine def location for a proc macro right now, so use call location.
         let location = cx.current_expansion.mark.expn_info().unwrap().call_site;
         let to_span = |transparency| {
@@ -444,7 +448,7 @@ impl server::TokenStreamIter for Rustc<'_> {
     ) -> Option<TokenTree<Self::Group, Self::Punct, Self::Ident, Self::Literal>> {
         loop {
             let tree = iter.stack.pop().or_else(|| {
-                let next = iter.cursor.next_as_stream()?;
+                let next = iter.cursor.next_with_joint()?;
                 Some(TokenTree::from_internal((next, self.sess, &mut iter.stack)))
             })?;
             // HACK: The condition "dummy span + group with empty delimiter" represents an AST
@@ -455,7 +459,7 @@ impl server::TokenStreamIter for Rustc<'_> {
             // and not doing the roundtrip through AST.
             if let TokenTree::Group(ref group) = tree {
                 if group.delimiter == Delimiter::None && group.span.entire().is_dummy() {
-                    iter.cursor.insert(group.stream.clone());
+                    iter.cursor.append(group.stream.clone());
                     continue;
                 }
             }
@@ -494,11 +498,7 @@ impl server::Group for Rustc<'_> {
 
 impl server::Punct for Rustc<'_> {
     fn new(&mut self, ch: char, spacing: Spacing) -> Self::Punct {
-        Punct {
-            ch,
-            joint: spacing == Spacing::Joint,
-            span: server::Span::call_site(self),
-        }
+        Punct::new(ch, spacing == Spacing::Joint, server::Span::call_site(self))
     }
     fn as_char(&mut self, punct: Self::Punct) -> char {
         punct.ch
@@ -520,14 +520,7 @@ impl server::Punct for Rustc<'_> {
 
 impl server::Ident for Rustc<'_> {
     fn new(&mut self, string: &str, span: Self::Span, is_raw: bool) -> Self::Ident {
-        let sym = Symbol::intern(string);
-        if is_raw
-            && (sym == keywords::Underscore.name()
-                || ast::Ident::with_empty_ctxt(sym).is_path_segment_keyword())
-        {
-            panic!("`{:?}` is not a valid raw identifier", string)
-        }
-        Ident { sym, span, is_raw }
+        Ident::new(Symbol::intern(string), is_raw, span)
     }
     fn span(&mut self, ident: Self::Ident) -> Self::Span {
         ident.span
@@ -654,7 +647,7 @@ impl server::Literal for Rustc<'_> {
     }
 }
 
-impl<'a> server::SourceFile for Rustc<'a> {
+impl server::SourceFile for Rustc<'_> {
     fn eq(&mut self, file1: &Self::SourceFile, file2: &Self::SourceFile) -> bool {
         Lrc::ptr_eq(file1, file2)
     }
@@ -746,5 +739,8 @@ impl server::Span for Rustc<'_> {
     }
     fn resolved_at(&mut self, span: Self::Span, at: Self::Span) -> Self::Span {
         span.with_ctxt(at.ctxt())
+    }
+    fn source_text(&mut self,  span: Self::Span) -> Option<String> {
+        self.sess.source_map().span_to_snippet(span).ok()
     }
 }

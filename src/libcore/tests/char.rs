@@ -1,13 +1,3 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 use std::{char,str};
 use std::convert::TryFrom;
 use std::str::FromStr;
@@ -86,6 +76,8 @@ fn test_to_digit() {
 #[test]
 fn test_to_lowercase() {
     fn lower(c: char) -> String {
+        let to_lowercase = c.to_lowercase();
+        assert_eq!(to_lowercase.len(), to_lowercase.count());
         let iter: String = c.to_lowercase().collect();
         let disp: String = c.to_lowercase().to_string();
         assert_eq!(iter, disp);
@@ -111,6 +103,8 @@ fn test_to_lowercase() {
 #[test]
 fn test_to_uppercase() {
     fn upper(c: char) -> String {
+        let to_uppercase = c.to_uppercase();
+        assert_eq!(to_uppercase.len(), to_uppercase.count());
         let iter: String = c.to_uppercase().collect();
         let disp: String = c.to_uppercase().to_string();
         assert_eq!(iter, disp);

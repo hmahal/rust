@@ -1,13 +1,3 @@
-// Copyright 2017 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 // ignore-wasm32-bare compiled with panic=abort by default
 
 fn main() {
@@ -48,14 +38,14 @@ impl Drop for Droppy {
 //         _6 = move (_1.0: Aligned);
 //         drop(_6) -> [return: bb4, unwind: bb3];
 //     }
-//     bb1: {
+//     bb1 (cleanup): {
 //         resume;
 //     }
 //     bb2: {
 //         StorageDead(_1);
 //         return;
 //     }
-//     bb3: {
+//     bb3 (cleanup): {
 //         (_1.0: Aligned) = move _4;
 //         drop(_1) -> bb1;
 //     }

@@ -1,13 +1,3 @@
-// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 // run-pass
 #![allow(deprecated)]
 
@@ -47,6 +37,22 @@ fn main() {
     check::<f32x6>();
     check::<f32x7>();
     check::<f32x8>();
+
+    check::<usizex2>();
+    check::<usizex3>();
+    check::<usizex4>();
+    check::<usizex5>();
+    check::<usizex6>();
+    check::<usizex7>();
+    check::<usizex8>();
+
+    check::<isizex2>();
+    check::<isizex3>();
+    check::<isizex4>();
+    check::<isizex5>();
+    check::<isizex6>();
+    check::<isizex7>();
+    check::<isizex8>();
 }
 
 #[repr(simd)] struct u8x2(u8, u8);
@@ -72,3 +78,19 @@ fn main() {
 #[repr(simd)] struct f32x6(f32, f32, f32, f32, f32, f32);
 #[repr(simd)] struct f32x7(f32, f32, f32, f32, f32, f32, f32);
 #[repr(simd)] struct f32x8(f32, f32, f32, f32, f32, f32, f32, f32);
+
+#[repr(simd)] struct usizex2(usize, usize);
+#[repr(simd)] struct usizex3(usize, usize, usize);
+#[repr(simd)] struct usizex4(usize, usize, usize, usize);
+#[repr(simd)] struct usizex5(usize, usize, usize, usize, usize);
+#[repr(simd)] struct usizex6(usize, usize, usize, usize, usize, usize);
+#[repr(simd)] struct usizex7(usize, usize, usize, usize, usize, usize, usize);
+#[repr(simd)] struct usizex8(usize, usize, usize, usize, usize, usize, usize, usize);
+
+#[repr(simd)] struct isizex2(isize, isize);
+#[repr(simd)] struct isizex3(isize, isize, isize);
+#[repr(simd)] struct isizex4(isize, isize, isize, isize);
+#[repr(simd)] struct isizex5(isize, isize, isize, isize, isize);
+#[repr(simd)] struct isizex6(isize, isize, isize, isize, isize, isize);
+#[repr(simd)] struct isizex7(isize, isize, isize, isize, isize, isize, isize);
+#[repr(simd)] struct isizex8(isize, isize, isize, isize, isize, isize, isize, isize);

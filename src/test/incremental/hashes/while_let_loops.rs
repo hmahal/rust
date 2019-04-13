@@ -1,14 +1,3 @@
-// Copyright 2016 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-
 // This test case tests the incremental compilation hash (ICH) implementation
 // for `while let` loops.
 
@@ -36,7 +25,7 @@ pub fn change_loop_body() {
 }
 
 #[cfg(not(cfail1))]
-#[rustc_clean(cfg="cfail2", except="HirBody, MirValidated, MirOptimized")]
+#[rustc_clean(cfg="cfail2", except="HirBody, mir_built, optimized_mir")]
 #[rustc_clean(cfg="cfail3")]
 pub fn change_loop_body() {
     let mut _x = 0;
@@ -59,7 +48,7 @@ pub fn change_loop_condition() {
 }
 
 #[cfg(not(cfail1))]
-#[rustc_clean(cfg="cfail2", except="HirBody, MirValidated, MirOptimized")]
+#[rustc_clean(cfg="cfail2", except="HirBody, mir_built, optimized_mir")]
 #[rustc_clean(cfg="cfail3")]
 pub fn change_loop_condition() {
     let mut _x = 0;
@@ -81,7 +70,7 @@ pub fn add_break() {
 }
 
 #[cfg(not(cfail1))]
-#[rustc_clean(cfg="cfail2", except="HirBody, MirValidated, MirOptimized, TypeckTables")]
+#[rustc_clean(cfg="cfail2", except="HirBody, mir_built, optimized_mir, typeck_tables_of")]
 #[rustc_clean(cfg="cfail3")]
 pub fn add_break() {
     let mut _x = 0;
@@ -152,7 +141,7 @@ pub fn change_break_label() {
 }
 
 #[cfg(not(cfail1))]
-#[rustc_clean(cfg="cfail2", except="HirBody, MirValidated, MirOptimized, TypeckTables")]
+#[rustc_clean(cfg="cfail2", except="HirBody, mir_built, optimized_mir, typeck_tables_of")]
 #[rustc_clean(cfg="cfail3")]
 pub fn change_break_label() {
     let mut _x = 0;
@@ -202,7 +191,7 @@ pub fn change_continue_label() {
 }
 
 #[cfg(not(cfail1))]
-#[rustc_clean(cfg="cfail2", except="HirBody, MirValidated, MirOptimized, TypeckTables")]
+#[rustc_clean(cfg="cfail2", except="HirBody, mir_built, optimized_mir, typeck_tables_of")]
 #[rustc_clean(cfg="cfail3")]
 pub fn change_continue_label() {
     let mut _x = 0;
@@ -227,7 +216,7 @@ pub fn change_continue_to_break() {
 }
 
 #[cfg(not(cfail1))]
-#[rustc_clean(cfg="cfail2", except="HirBody, MirValidated, MirOptimized")]
+#[rustc_clean(cfg="cfail2", except="HirBody, mir_built, optimized_mir")]
 #[rustc_clean(cfg="cfail3")]
 pub fn change_continue_to_break() {
     let mut _x = 0;

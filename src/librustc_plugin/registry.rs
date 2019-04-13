@@ -1,13 +1,3 @@
-// Copyright 2012-2013 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Used by plugin crates to tell `rustc` about the plugins they provide.
 
 use rustc::lint::{EarlyLintPassObject, LateLintPassObject, LintId, Lint};
@@ -78,7 +68,7 @@ impl<'a> Registry<'a> {
         }
     }
 
-    /// Get the plugin's arguments, if any.
+    /// Gets the plugin's arguments, if any.
     ///
     /// These are specified inside the `plugin` crate attribute as
     ///
@@ -120,8 +110,8 @@ impl<'a> Registry<'a> {
                     edition,
                 }
             }
-            IdentTT(ext, _, allow_internal_unstable) => {
-                IdentTT(ext, Some(self.krate_span), allow_internal_unstable)
+            IdentTT { expander, span: _, allow_internal_unstable } => {
+                IdentTT { expander, span: Some(self.krate_span), allow_internal_unstable }
             }
             _ => extension,
         }));
@@ -136,7 +126,7 @@ impl<'a> Registry<'a> {
         self.register_syntax_extension(Symbol::intern(name), NormalTT {
             expander: Box::new(expander),
             def_info: None,
-            allow_internal_unstable: false,
+            allow_internal_unstable: None,
             allow_internal_unsafe: false,
             local_inner_macros: false,
             unstable_feature: None,

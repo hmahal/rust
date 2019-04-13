@@ -1,10 +1,10 @@
 error[E0596]: cannot borrow immutable borrowed content `*x` as mutable
-  --> $DIR/borrowck-call-method-from-mut-aliasable.rs:27:5
+  --> $DIR/borrowck-call-method-from-mut-aliasable.rs:17:5
    |
 LL | fn b(x: &Foo) {
    |         ---- use `&mut Foo` here to make mutable
 LL |     x.f();
-LL |     x.h(); //~ ERROR cannot borrow
+LL |     x.h();
    |     ^ cannot borrow as mutable
 
 error: aborting due to previous error

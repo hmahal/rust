@@ -1,13 +1,3 @@
-// Copyright 2018 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 #[doc(keyword = "as")]
 //
 /// The keyword for casting a value to a type.
@@ -57,8 +47,8 @@ mod as_keyword { }
 ///
 /// Constants must be explicitly typed, unlike with `let` you can't ignore its type and let the
 /// compiler figure it out. Any constant value can be defined in a const, which in practice happens
-/// to be most things that would be reasonable to have a constant (barring `const fn`s, coming
-/// soon). For example, you can't have a File as a `const`.
+/// to be most things that would be reasonable to have a constant (barring `const fn`s). For
+/// example, you can't have a File as a `const`.
 ///
 /// The only lifetime allowed in a constant is `'static`, which is the lifetime that encompasses
 /// all others in a Rust program. For example, if you wanted to define a constant string, it would
@@ -179,7 +169,7 @@ mod crate_keyword { }
 ///
 /// [Algebraic Data Types]: https://en.wikipedia.org/wiki/Algebraic_data_type
 /// [`Option`]: option/enum.Option.html
-/// [Rust Book]: https://doc.rust-lang.org/book/second-edition/ch06-01-defining-an-enum.html
+/// [Rust Book]: https://doc.rust-lang.org/book/ch06-01-defining-an-enum.html
 /// [Reference]: https://doc.rust-lang.org/reference/items/enumerations.html
 mod enum_keyword { }
 
@@ -221,7 +211,7 @@ mod enum_keyword { }
 /// For more information on FFI, check the [Rust book] or the [Reference].
 ///
 /// [Rust book]:
-/// https://doc.rust-lang.org/book/second-edition/ch19-01-unsafe-rust.html#using-extern-functions-to-call-external-code
+/// https://doc.rust-lang.org/book/ch19-01-unsafe-rust.html#using-extern-functions-to-call-external-code
 /// [Reference]: https://doc.rust-lang.org/reference/items/external-blocks.html
 mod extern_keyword { }
 
@@ -270,7 +260,7 @@ mod extern_keyword { }
 /// }
 ///
 /// fn generic_where<T>(x: T) -> T
-///     where T: std::ops::Add<Output=T> + Copy
+///     where T: std::ops::Add<Output = T> + Copy
 /// {
 ///     x + x + x
 /// }
@@ -288,7 +278,7 @@ mod extern_keyword { }
 ///
 /// [`impl`]: keyword.impl.html
 /// [`extern`]: keyword.extern.html
-/// [Rust book]: https://doc.rust-lang.org/book/second-edition/ch03-03-how-functions-work.html
+/// [Rust book]: https://doc.rust-lang.org/book/ch03-03-how-functions-work.html
 /// [Reference]: https://doc.rust-lang.org/reference/items/functions.html
 mod fn_keyword { }
 
@@ -296,11 +286,16 @@ mod fn_keyword { }
 //
 /// The `for` keyword.
 ///
-/// `for` is primarily used in for-in-loops, but it has a few other pieces of syntactic uses such as
-/// `impl Trait for Type` (see [`impl`] for more info on that). for-in-loops, or to be more
-/// precise, iterator loops, are a simple syntactic sugar over an exceedingly common practice
-/// within Rust, which is to loop over an iterator until that iterator returns None (or `break`
-/// is called).
+/// The `for` keyword is used in many syntactic locations:
+///
+/// * `for` is used in for-in-loops (see below).
+/// * `for` is used when implementing traits as in `impl Trait for Type` (see [`impl`] for more info
+///   on that).
+/// * `for` is also used for [higher-ranked trait bounds] as in `for<'a> &'a T: PartialEq<i32>`.
+///
+/// for-in-loops, or to be more precise, iterator loops, are a simple syntactic sugar over a common
+/// practice within Rust, which is to loop over an iterator until that iterator returns `None` (or
+/// `break` is called).
 ///
 /// ```rust
 /// for i in 0..5 {
@@ -357,6 +352,8 @@ mod fn_keyword { }
 /// For more information on for-loops, see the [Rust book] or the [Reference].
 ///
 /// [`impl`]: keyword.impl.html
+/// [higher-ranked trait bounds]:
+/// https://doc.rust-lang.org/nightly/reference/trait-bounds.html#higher-ranked-trait-bounds
 /// [`IntoIterator`]: iter/trait.IntoIterator.html
 /// [Rust book]:
 /// https://doc.rust-lang.org/book/2018-edition/ch03-05-control-flow.html#looping-through-a-collection-with-for
@@ -637,7 +634,7 @@ mod loop_keyword { }
 /// directly accessed and modified.
 ///
 /// Tuple structs are similar to regular structs, but its fields have no names. They are used like
-/// tuples, with deconstruction possible via `let TupleStruct(x, y) = foo;` syntax.  For accessing
+/// tuples, with deconstruction possible via `let TupleStruct(x, y) = foo;` syntax. For accessing
 /// individual variables, the same syntax is used as with regular tuples, namely `foo.0`, `foo.1`,
 /// etc, starting at zero.
 ///
@@ -715,6 +712,6 @@ mod loop_keyword { }
 /// [Reference][reference].
 ///
 /// [`PhantomData`]: marker/struct.PhantomData.html
-/// [book]: https://doc.rust-lang.org/book/second-edition/ch05-01-defining-structs.html
+/// [book]: https://doc.rust-lang.org/book/ch05-01-defining-structs.html
 /// [reference]: https://doc.rust-lang.org/reference/items/structs.html
 mod struct_keyword { }

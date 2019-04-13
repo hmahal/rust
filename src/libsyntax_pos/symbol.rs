@@ -1,19 +1,11 @@
-// Copyright 2016 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! An "interner" is a data structure that associates values with usize tags and
 //! allows bidirectional lookup; i.e., given a value, one can easily find the
 //! type, and vice versa.
 
 use arena::DroplessArena;
 use rustc_data_structures::fx::FxHashMap;
+use rustc_data_structures::indexed_vec::Idx;
+use rustc_data_structures::newtype_index;
 use serialize::{Decodable, Decoder, Encodable, Encoder};
 
 use std::fmt;
@@ -21,8 +13,8 @@ use std::str;
 use std::cmp::{PartialEq, Ordering, PartialOrd, Ord};
 use std::hash::{Hash, Hasher};
 
-use hygiene::SyntaxContext;
-use {Span, DUMMY_SP, GLOBALS};
+use crate::hygiene::SyntaxContext;
+use crate::{Span, DUMMY_SP, GLOBALS};
 
 #[derive(Copy, Clone, Eq)]
 pub struct Ident {
@@ -51,13 +43,13 @@ impl Ident {
         Ident::with_empty_ctxt(Symbol::intern(string))
     }
 
-    /// Replace `lo` and `hi` with those from `span`, but keep hygiene context.
+    /// Replaces `lo` and `hi` with those from `span`, but keep hygiene context.
     pub fn with_span_pos(self, span: Span) -> Ident {
         Ident::new(self.name, span.with_ctxt(self.span.ctxt()))
     }
 
     pub fn without_first_quote(self) -> Ident {
-        Ident::new(Symbol::intern(self.as_str().trim_left_matches('\'')), self.span)
+        Ident::new(Symbol::intern(self.as_str().trim_start_matches('\'')), self.span)
     }
 
     /// "Normalize" ident for use in comparisons using "item hygiene".
@@ -109,13 +101,13 @@ impl Hash for Ident {
 }
 
 impl fmt::Debug for Ident {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}{:?}", self.name, self.span.ctxt())
     }
 }
 
 impl fmt::Display for Ident {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&self.name, f)
     }
 }
@@ -143,19 +135,32 @@ impl Decodable for Ident {
     }
 }
 
-/// A symbol is an interned or gensymed string.
+/// A symbol is an interned or gensymed string. The use of `newtype_index!` means
+/// that `Option<Symbol>` only takes up 4 bytes, because `newtype_index! reserves
+/// the last 256 values for tagging purposes.
+///
+/// Note that `Symbol` cannot directly be a `newtype_index!` because it implements
+/// `fmt::Debug`, `Encodable`, and `Decodable` in special ways.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Symbol(u32);
+pub struct Symbol(SymbolIndex);
+
+newtype_index! {
+    pub struct SymbolIndex { .. }
+}
 
 // The interner is pointed to by a thread local value which is only set on the main thread
 // with parallelization is disabled. So we don't allow `Symbol` to transfer between threads
 // to avoid panics and other errors, even though it would be memory safe to do so.
-#[cfg(not(parallel_queries))]
+#[cfg(not(parallel_compiler))]
 impl !Send for Symbol { }
-#[cfg(not(parallel_queries))]
+#[cfg(not(parallel_compiler))]
 impl !Sync for Symbol { }
 
 impl Symbol {
+    const fn new(n: u32) -> Self {
+        Symbol(SymbolIndex::from_u32_const(n))
+    }
+
     /// Maps a string to its interned representation.
     pub fn intern(string: &str) -> Self {
         with_interner(|interner| interner.intern(string))
@@ -165,7 +170,7 @@ impl Symbol {
         with_interner(|interner| interner.interned(self))
     }
 
-    /// Gensyms a new usize, using the current interner.
+    /// Gensyms a new `usize`, using the current interner.
     pub fn gensym(string: &str) -> Self {
         with_interner(|interner| interner.gensym(string))
     }
@@ -174,10 +179,14 @@ impl Symbol {
         with_interner(|interner| interner.gensymed(self))
     }
 
+    pub fn is_gensymed(self) -> bool {
+        with_interner(|interner| interner.is_gensymed(self))
+    }
+
     pub fn as_str(self) -> LocalInternedString {
         with_interner(|interner| unsafe {
             LocalInternedString {
-                string: ::std::mem::transmute::<&str, &str>(interner.get(self))
+                string: std::mem::transmute::<&str, &str>(interner.get(self))
             }
         })
     }
@@ -189,15 +198,15 @@ impl Symbol {
     }
 
     pub fn as_u32(self) -> u32 {
-        self.0
+        self.0.as_u32()
     }
 }
 
 impl fmt::Debug for Symbol {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let is_gensymed = with_interner(|interner| interner.is_gensymed(*self));
         if is_gensymed {
-            write!(f, "{}({})", self, self.0)
+            write!(f, "{}({:?})", self, self.0)
         } else {
             write!(f, "{}", self)
         }
@@ -205,7 +214,7 @@ impl fmt::Debug for Symbol {
 }
 
 impl fmt::Display for Symbol {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&self.as_str(), f)
     }
 }
@@ -222,13 +231,16 @@ impl Decodable for Symbol {
     }
 }
 
-impl<T: ::std::ops::Deref<Target=str>> PartialEq<T> for Symbol {
+impl<T: std::ops::Deref<Target=str>> PartialEq<T> for Symbol {
     fn eq(&self, other: &T) -> bool {
         self.as_str() == other.deref()
     }
 }
 
 // The `&'static str`s in this type actually point into the arena.
+//
+// Note that normal symbols are indexed upward from 0, and gensyms are indexed
+// downward from SymbolIndex::MAX_AS_U32.
 #[derive(Default)]
 pub struct Interner {
     arena: DroplessArena,
@@ -243,7 +255,7 @@ impl Interner {
         for &string in init {
             if string == "" {
                 // We can't allocate empty strings in the arena, so handle this here.
-                let name = Symbol(this.strings.len() as u32);
+                let name = Symbol::new(this.strings.len() as u32);
                 this.names.insert("", name);
                 this.strings.push("");
             } else {
@@ -258,7 +270,7 @@ impl Interner {
             return name;
         }
 
-        let name = Symbol(self.strings.len() as u32);
+        let name = Symbol::new(self.strings.len() as u32);
 
         // `from_utf8_unchecked` is safe since we just allocated a `&str` which is known to be
         // UTF-8.
@@ -276,10 +288,10 @@ impl Interner {
     }
 
     pub fn interned(&self, symbol: Symbol) -> Symbol {
-        if (symbol.0 as usize) < self.strings.len() {
+        if (symbol.0.as_usize()) < self.strings.len() {
             symbol
         } else {
-            self.interned(self.gensyms[(!0 - symbol.0) as usize])
+            self.interned(self.gensyms[(SymbolIndex::MAX_AS_U32 - symbol.0.as_u32()) as usize])
         }
     }
 
@@ -290,17 +302,17 @@ impl Interner {
 
     fn gensymed(&mut self, symbol: Symbol) -> Symbol {
         self.gensyms.push(symbol);
-        Symbol(!0 - self.gensyms.len() as u32 + 1)
+        Symbol::new(SymbolIndex::MAX_AS_U32 - self.gensyms.len() as u32 + 1)
     }
 
     fn is_gensymed(&mut self, symbol: Symbol) -> bool {
-        symbol.0 as usize >= self.strings.len()
+        symbol.0.as_usize() >= self.strings.len()
     }
 
     pub fn get(&self, symbol: Symbol) -> &str {
-        match self.strings.get(symbol.0 as usize) {
+        match self.strings.get(symbol.0.as_usize()) {
             Some(string) => string,
-            None => self.get(self.gensyms[(!0 - symbol.0) as usize]),
+            None => self.get(self.gensyms[(SymbolIndex::MAX_AS_U32 - symbol.0.as_u32()) as usize]),
         }
     }
 }
@@ -324,11 +336,11 @@ macro_rules! declare_keywords {(
         $(
             #[allow(non_upper_case_globals)]
             pub const $konst: Keyword = Keyword {
-                ident: Ident::with_empty_ctxt(super::Symbol($index))
+                ident: Ident::with_empty_ctxt(super::Symbol::new($index))
             };
         )*
 
-        impl ::std::str::FromStr for Keyword {
+        impl std::str::FromStr for Keyword {
             type Err = ();
 
             fn from_str(s: &str) -> Result<Self, ()> {
@@ -471,17 +483,21 @@ impl Ident {
         self.name == keywords::Super.name() ||
         self.name == keywords::SelfLower.name() ||
         self.name == keywords::SelfUpper.name() ||
-        self.name == keywords::Extern.name() ||
         self.name == keywords::Crate.name() ||
         self.name == keywords::PathRoot.name() ||
         self.name == keywords::DollarCrate.name()
     }
 
-    // We see this identifier in a normal identifier position, like variable name or a type.
-    // How was it written originally? Did it use the raw form? Let's try to guess.
-    pub fn is_raw_guess(self) -> bool {
+    /// This identifier can be a raw identifier.
+    pub fn can_be_raw(self) -> bool {
         self.name != keywords::Invalid.name() && self.name != keywords::Underscore.name() &&
-        self.is_reserved() && !self.is_path_segment_keyword()
+        !self.is_path_segment_keyword()
+    }
+
+    /// We see this identifier in a normal identifier position, like variable name or a type.
+    /// How was it written originally? Did it use the raw form? Let's try to guess.
+    pub fn is_raw_guess(self) -> bool {
+        self.can_be_raw() && self.is_reserved()
     }
 }
 
@@ -508,45 +524,49 @@ impl LocalInternedString {
         }
     }
 
-    pub fn get(&self) -> &'static str {
+    pub fn get(&self) -> &str {
+        // This returns a valid string since we ensure that `self` outlives the interner
+        // by creating the interner on a thread which outlives threads which can access it.
+        // This type cannot move to a thread which outlives the interner since it does
+        // not implement Send.
         self.string
     }
 }
 
-impl<U: ?Sized> ::std::convert::AsRef<U> for LocalInternedString
+impl<U: ?Sized> std::convert::AsRef<U> for LocalInternedString
 where
-    str: ::std::convert::AsRef<U>
+    str: std::convert::AsRef<U>
 {
     fn as_ref(&self) -> &U {
         self.string.as_ref()
     }
 }
 
-impl<T: ::std::ops::Deref<Target = str>> ::std::cmp::PartialEq<T> for LocalInternedString {
+impl<T: std::ops::Deref<Target = str>> std::cmp::PartialEq<T> for LocalInternedString {
     fn eq(&self, other: &T) -> bool {
         self.string == other.deref()
     }
 }
 
-impl ::std::cmp::PartialEq<LocalInternedString> for str {
+impl std::cmp::PartialEq<LocalInternedString> for str {
     fn eq(&self, other: &LocalInternedString) -> bool {
         self == other.string
     }
 }
 
-impl<'a> ::std::cmp::PartialEq<LocalInternedString> for &'a str {
+impl<'a> std::cmp::PartialEq<LocalInternedString> for &'a str {
     fn eq(&self, other: &LocalInternedString) -> bool {
         *self == other.string
     }
 }
 
-impl ::std::cmp::PartialEq<LocalInternedString> for String {
+impl std::cmp::PartialEq<LocalInternedString> for String {
     fn eq(&self, other: &LocalInternedString) -> bool {
         self == other.string
     }
 }
 
-impl<'a> ::std::cmp::PartialEq<LocalInternedString> for &'a String {
+impl<'a> std::cmp::PartialEq<LocalInternedString> for &'a String {
     fn eq(&self, other: &LocalInternedString) -> bool {
         *self == other.string
     }
@@ -555,19 +575,19 @@ impl<'a> ::std::cmp::PartialEq<LocalInternedString> for &'a String {
 impl !Send for LocalInternedString {}
 impl !Sync for LocalInternedString {}
 
-impl ::std::ops::Deref for LocalInternedString {
+impl std::ops::Deref for LocalInternedString {
     type Target = str;
     fn deref(&self) -> &str { self.string }
 }
 
 impl fmt::Debug for LocalInternedString {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(self.string, f)
     }
 }
 
 impl fmt::Display for LocalInternedString {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(self.string, f)
     }
 }
@@ -634,7 +654,7 @@ impl Ord for InternedString {
     }
 }
 
-impl<T: ::std::ops::Deref<Target = str>> PartialEq<T> for InternedString {
+impl<T: std::ops::Deref<Target = str>> PartialEq<T> for InternedString {
     fn eq(&self, other: &T) -> bool {
         self.with(|string| string == other.deref())
     }
@@ -670,20 +690,20 @@ impl<'a> PartialEq<InternedString> for &'a String {
     }
 }
 
-impl ::std::convert::From<InternedString> for String {
+impl std::convert::From<InternedString> for String {
     fn from(val: InternedString) -> String {
         val.as_symbol().to_string()
     }
 }
 
 impl fmt::Debug for InternedString {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.with(|str| fmt::Debug::fmt(&str, f))
     }
 }
 
 impl fmt::Display for InternedString {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.with(|str| fmt::Display::fmt(&str, f))
     }
 }
@@ -703,25 +723,25 @@ impl Encodable for InternedString {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use Globals;
+    use crate::Globals;
 
     #[test]
     fn interner_tests() {
         let mut i: Interner = Interner::default();
         // first one is zero:
-        assert_eq!(i.intern("dog"), Symbol(0));
+        assert_eq!(i.intern("dog"), Symbol::new(0));
         // re-use gets the same entry:
-        assert_eq!(i.intern("dog"), Symbol(0));
+        assert_eq!(i.intern("dog"), Symbol::new(0));
         // different string gets a different #:
-        assert_eq!(i.intern("cat"), Symbol(1));
-        assert_eq!(i.intern("cat"), Symbol(1));
+        assert_eq!(i.intern("cat"), Symbol::new(1));
+        assert_eq!(i.intern("cat"), Symbol::new(1));
         // dog is still at zero
-        assert_eq!(i.intern("dog"), Symbol(0));
-        assert_eq!(i.gensym("zebra"), Symbol(4294967295));
-        // gensym of same string gets new number :
-        assert_eq!(i.gensym("zebra"), Symbol(4294967294));
+        assert_eq!(i.intern("dog"), Symbol::new(0));
+        assert_eq!(i.gensym("zebra"), Symbol::new(SymbolIndex::MAX_AS_U32));
+        // gensym of same string gets new number:
+        assert_eq!(i.gensym("zebra"), Symbol::new(SymbolIndex::MAX_AS_U32 - 1));
         // gensym of *existing* string gets new number:
-        assert_eq!(i.gensym("dog"), Symbol(4294967293));
+        assert_eq!(i.gensym("dog"), Symbol::new(SymbolIndex::MAX_AS_U32 - 2));
     }
 
     #[test]

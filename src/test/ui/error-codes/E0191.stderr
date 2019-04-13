@@ -1,10 +1,10 @@
 error[E0191]: the value of the associated type `Bar` (from the trait `Trait`) must be specified
-  --> $DIR/E0191.rs:15:12
+  --> $DIR/E0191.rs:5:12
    |
 LL |     type Bar;
    |     --------- `Bar` defined here
 ...
-LL | type Foo = Trait; //~ ERROR E0191
+LL | type Foo = Trait;
    |            ^^^^^ associated type `Bar` must be specified
 
 error: aborting due to previous error

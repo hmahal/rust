@@ -1,13 +1,3 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Code related to processing overloaded binary and unary operators.
 
 use super::{FnCtxt, Needs};
@@ -22,7 +12,7 @@ use syntax::ast::Ident;
 use rustc::hir;
 
 impl<'a, 'gcx, 'tcx> FnCtxt<'a, 'gcx, 'tcx> {
-    /// Check a `a <op>= b`
+    /// Checks a `a <op>= b`
     pub fn check_binop_assign(&self,
                               expr: &'gcx hir::Expr,
                               op: hir::BinOp,
@@ -52,7 +42,7 @@ impl<'a, 'gcx, 'tcx> FnCtxt<'a, 'gcx, 'tcx> {
         ty
     }
 
-    /// Check a potentially overloaded binary operator.
+    /// Checks a potentially overloaded binary operator.
     pub fn check_binop(&self,
                        expr: &'gcx hir::Expr,
                        op: hir::BinOp,
@@ -61,8 +51,8 @@ impl<'a, 'gcx, 'tcx> FnCtxt<'a, 'gcx, 'tcx> {
     {
         let tcx = self.tcx;
 
-        debug!("check_binop(expr.id={}, expr={:?}, op={:?}, lhs_expr={:?}, rhs_expr={:?})",
-               expr.id,
+        debug!("check_binop(expr.hir_id={}, expr={:?}, op={:?}, lhs_expr={:?}, rhs_expr={:?})",
+               expr.hir_id,
                expr,
                op,
                lhs_expr,
@@ -160,8 +150,8 @@ impl<'a, 'gcx, 'tcx> FnCtxt<'a, 'gcx, 'tcx> {
                               is_assign: IsAssign)
                               -> (Ty<'tcx>, Ty<'tcx>, Ty<'tcx>)
     {
-        debug!("check_overloaded_binop(expr.id={}, op={:?}, is_assign={:?})",
-               expr.id,
+        debug!("check_overloaded_binop(expr.hir_id={}, op={:?}, is_assign={:?})",
+               expr.hir_id,
                op,
                is_assign);
 
@@ -272,9 +262,9 @@ impl<'a, 'gcx, 'tcx> FnCtxt<'a, 'gcx, 'tcx> {
                             let mut suggested_deref = false;
                             if let Ref(_, mut rty, _) = lhs_ty.sty {
                                 if {
-                                    !self.infcx.type_moves_by_default(self.param_env,
-                                                                        rty,
-                                                                        lhs_expr.span) &&
+                                    self.infcx.type_is_copy_modulo_regions(self.param_env,
+                                                                           rty,
+                                                                           lhs_expr.span) &&
                                         self.lookup_op_method(rty,
                                                               &[rhs_ty],
                                                               Op::Binary(op, is_assign))
@@ -290,7 +280,7 @@ impl<'a, 'gcx, 'tcx> FnCtxt<'a, 'gcx, 'tcx> {
                                             rty,
                                             lstring,
                                         );
-                                        err.span_suggestion_with_applicability(
+                                        err.span_suggestion(
                                             lhs_expr.span,
                                             msg,
                                             format!("*{}", lstring),
@@ -316,7 +306,7 @@ impl<'a, 'gcx, 'tcx> FnCtxt<'a, 'gcx, 'tcx> {
                             if let Some(missing_trait) = missing_trait {
                                 if op.node == hir::BinOpKind::Add &&
                                     self.check_str_addition(expr, lhs_expr, rhs_expr, lhs_ty,
-                                                            rhs_ty, &mut err, true) {
+                                                            rhs_ty, &mut err, true, op) {
                                     // This has nothing here because it means we did string
                                     // concatenation (e.g., "Hello " += "World!"). This means
                                     // we don't want the note in the else clause to be emitted
@@ -337,16 +327,22 @@ impl<'a, 'gcx, 'tcx> FnCtxt<'a, 'gcx, 'tcx> {
                             err.emit();
                         }
                         IsAssign::No => {
-                            let mut err = struct_span_err!(self.tcx.sess, expr.span, E0369,
+                            let mut err = struct_span_err!(self.tcx.sess, op.span, E0369,
                                 "binary operation `{}` cannot be applied to type `{}`",
                                 op.node.as_str(),
                                 lhs_ty);
+
+                            if !lhs_expr.span.eq(&rhs_expr.span) {
+                                err.span_label(lhs_expr.span, lhs_ty.to_string());
+                                err.span_label(rhs_expr.span, rhs_ty.to_string());
+                            }
+
                             let mut suggested_deref = false;
                             if let Ref(_, mut rty, _) = lhs_ty.sty {
                                 if {
-                                    !self.infcx.type_moves_by_default(self.param_env,
-                                                                      rty,
-                                                                      lhs_expr.span) &&
+                                    self.infcx.type_is_copy_modulo_regions(self.param_env,
+                                                                           rty,
+                                                                           lhs_expr.span) &&
                                         self.lookup_op_method(rty,
                                                               &[rhs_ty],
                                                               Op::Binary(op, is_assign))
@@ -390,7 +386,7 @@ impl<'a, 'gcx, 'tcx> FnCtxt<'a, 'gcx, 'tcx> {
                             if let Some(missing_trait) = missing_trait {
                                 if op.node == hir::BinOpKind::Add &&
                                     self.check_str_addition(expr, lhs_expr, rhs_expr, lhs_ty,
-                                                            rhs_ty, &mut err, false) {
+                                                            rhs_ty, &mut err, false, op) {
                                     // This has nothing here because it means we did string
                                     // concatenation (e.g., "Hello " + "World!"). This means
                                     // we don't want the note in the else clause to be emitted
@@ -426,8 +422,9 @@ impl<'a, 'gcx, 'tcx> FnCtxt<'a, 'gcx, 'tcx> {
         rhs_expr: &'gcx hir::Expr,
         lhs_ty: Ty<'tcx>,
         rhs_ty: Ty<'tcx>,
-        err: &mut errors::DiagnosticBuilder,
+        err: &mut errors::DiagnosticBuilder<'_>,
         is_assign: bool,
+        op: hir::BinOp,
     ) -> bool {
         let source_map = self.tcx.sess.source_map();
         let msg = "`to_owned()` can be used to create an owned `String` \
@@ -441,10 +438,10 @@ impl<'a, 'gcx, 'tcx> FnCtxt<'a, 'gcx, 'tcx> {
             (&Ref(_, l_ty, _), &Ref(_, r_ty, _))
             if l_ty.sty == Str && r_ty.sty == Str => {
                 if !is_assign {
-                    err.span_label(expr.span,
+                    err.span_label(op.span,
                                    "`+` can't be used to concatenate two `&str` strings");
                     match source_map.span_to_snippet(lhs_expr.span) {
-                        Ok(lstring) => err.span_suggestion_with_applicability(
+                        Ok(lstring) => err.span_suggestion(
                             lhs_expr.span,
                             msg,
                             format!("{}.to_owned()", lstring),
@@ -465,7 +462,7 @@ impl<'a, 'gcx, 'tcx> FnCtxt<'a, 'gcx, 'tcx> {
                     is_assign,
                 ) {
                     (Ok(l), Ok(r), false) => {
-                        err.multipart_suggestion_with_applicability(
+                        err.multipart_suggestion(
                             msg,
                             vec![
                                 (lhs_expr.span, format!("{}.to_owned()", l)),
@@ -682,7 +679,7 @@ enum Op {
     Unary(hir::UnOp, Span),
 }
 
-/// Returns true if this is a built-in arithmetic operation (e.g., u32
+/// Returns `true` if this is a built-in arithmetic operation (e.g., u32
 /// + u32, i16x4 == i16x4) and false if these types would have to be
 /// overloaded to be legal. There are two reasons that we distinguish
 /// builtin operations from overloaded ones (vs trying to drive
@@ -691,14 +688,14 @@ enum Op {
 ///
 /// 1. Builtin operations can trivially be evaluated in constants.
 /// 2. For comparison operators applied to SIMD types the result is
-///    not of type `bool`. For example, `i16x4==i16x4` yields a
+///    not of type `bool`. For example, `i16x4 == i16x4` yields a
 ///    type like `i16x4`. This means that the overloaded trait
 ///    `PartialEq` is not applicable.
 ///
 /// Reason #2 is the killer. I tried for a while to always use
 /// overloaded logic and just check the types in constants/codegen after
 /// the fact, and it worked fine, except for SIMD types. -nmatsakis
-fn is_builtin_binop(lhs: Ty, rhs: Ty, op: hir::BinOp) -> bool {
+fn is_builtin_binop(lhs: Ty<'_>, rhs: Ty<'_>, op: hir::BinOp) -> bool {
     match BinOpCategory::from(op) {
         BinOpCategory::Shortcircuit => {
             true

@@ -1,18 +1,7 @@
-// Copyright 2018 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 use super::write::CodegenContext;
-use traits::*;
-use ModuleCodegen;
+use crate::traits::*;
+use crate::ModuleCodegen;
 
-use rustc::util::time_graph::Timeline;
 use rustc_errors::FatalError;
 
 use std::sync::Arc;
@@ -77,7 +66,6 @@ impl<B: WriteBackendMethods> LtoModuleCodegen<B> {
     pub unsafe fn optimize(
         &mut self,
         cgcx: &CodegenContext<B>,
-        timeline: &mut Timeline
     ) -> Result<ModuleCodegen<B::Module>, FatalError> {
         match *self {
             LtoModuleCodegen::Fat { ref mut module, .. } => {
@@ -85,11 +73,10 @@ impl<B: WriteBackendMethods> LtoModuleCodegen<B> {
                 {
                     let config = cgcx.config(module.kind);
                     B::run_lto_pass_manager(cgcx, &module, config, false);
-                    timeline.record("fat-done");
                 }
                 Ok(module)
             }
-            LtoModuleCodegen::Thin(ref mut thin) => B::optimize_thin(cgcx, thin, timeline),
+            LtoModuleCodegen::Thin(ref mut thin) => B::optimize_thin(cgcx, thin),
         }
     }
 

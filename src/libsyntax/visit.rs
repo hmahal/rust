@@ -1,13 +1,3 @@
-// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! AST walker. Each overridden visit method has full control over what
 //! happens with its node, it can do its own traversal of the node's children,
 //! call `visit::walk_*` to apply the default traversal algorithm, or prevent
@@ -16,22 +6,23 @@
 //! Note: it is an important invariant that the default visitor walks the body
 //! of a function in "execution order" (more concretely, reverse post-order
 //! with respect to the CFG implied by the AST), meaning that if AST node A may
-//! execute before AST node B, then A is visited first.  The borrow checker in
+//! execute before AST node B, then A is visited first. The borrow checker in
 //! particular relies on this property.
 //!
 //! Note: walking an AST before macro expansion is probably a bad idea. For
 //! instance, a walker looking for item names in a module will miss all of
 //! those that are created by the expansion of a macro.
 
-use ast::*;
+use crate::ast::*;
+use crate::parse::token::Token;
+use crate::tokenstream::{TokenTree, TokenStream};
+
 use syntax_pos::Span;
-use parse::token::Token;
-use tokenstream::{TokenTree, TokenStream};
 
 #[derive(Copy, Clone)]
 pub enum FnKind<'a> {
     /// fn foo() or extern "Abi" fn foo()
-    ItemFn(Ident, FnHeader, &'a Visibility, &'a Block),
+    ItemFn(Ident, &'a FnHeader, &'a Visibility, &'a Block),
 
     /// fn foo(&self)
     Method(Ident, &'a MethodSig, Option<&'a Visibility>, &'a Block),
@@ -41,12 +32,12 @@ pub enum FnKind<'a> {
 }
 
 /// Each method of the Visitor trait is a hook to be potentially
-/// overridden.  Each method's default implementation recursively visits
+/// overridden. Each method's default implementation recursively visits
 /// the substructure of the input via the corresponding `walk` method;
 /// e.g., the `visit_mod` method by default calls `visit::walk_mod`.
 ///
 /// If you want to ensure that your code handles every variant
-/// explicitly, you need to override each method.  (And you also need
+/// explicitly, you need to override each method. (And you also need
 /// to monitor future changes to `Visitor` in case a new method with a
 /// new default implementation gets introduced.)
 pub trait Visitor<'ast>: Sized {
@@ -135,6 +126,7 @@ pub trait Visitor<'ast>: Sized {
         match generic_arg {
             GenericArg::Lifetime(lt) => self.visit_lifetime(lt),
             GenericArg::Type(ty) => self.visit_ty(ty),
+            GenericArg::Const(ct) => self.visit_anon_const(ct),
         }
     }
     fn visit_assoc_type_binding(&mut self, type_binding: &'ast TypeBinding) {
@@ -156,6 +148,9 @@ pub trait Visitor<'ast>: Sized {
     }
     fn visit_fn_ret_ty(&mut self, ret_ty: &'ast FunctionRetTy) {
         walk_fn_ret_ty(self, ret_ty)
+    }
+    fn visit_fn_header(&mut self, _header: &'ast FnHeader) {
+        // Nothing to do
     }
 }
 
@@ -233,8 +228,9 @@ pub fn walk_item<'a, V: Visitor<'a>>(visitor: &mut V, item: &'a Item) {
             visitor.visit_ty(typ);
             visitor.visit_expr(expr);
         }
-        ItemKind::Fn(ref declaration, header, ref generics, ref body) => {
+        ItemKind::Fn(ref declaration, ref header, ref generics, ref body) => {
             visitor.visit_generics(generics);
+            visitor.visit_fn_header(header);
             visitor.visit_fn(FnKind::ItemFn(item.ident, header,
                                             &item.vis, body),
                              declaration,
@@ -248,24 +244,24 @@ pub fn walk_item<'a, V: Visitor<'a>>(visitor: &mut V, item: &'a Item) {
             walk_list!(visitor, visit_foreign_item, &foreign_module.items);
         }
         ItemKind::GlobalAsm(ref ga) => visitor.visit_global_asm(ga),
-        ItemKind::Ty(ref typ, ref type_parameters) => {
+        ItemKind::Ty(ref typ, ref generics) => {
             visitor.visit_ty(typ);
-            visitor.visit_generics(type_parameters)
+            visitor.visit_generics(generics)
         }
-        ItemKind::Existential(ref bounds, ref type_parameters) => {
+        ItemKind::Existential(ref bounds, ref generics) => {
             walk_list!(visitor, visit_param_bound, bounds);
-            visitor.visit_generics(type_parameters)
+            visitor.visit_generics(generics)
         }
-        ItemKind::Enum(ref enum_definition, ref type_parameters) => {
-            visitor.visit_generics(type_parameters);
-            visitor.visit_enum_def(enum_definition, type_parameters, item.id, item.span)
+        ItemKind::Enum(ref enum_definition, ref generics) => {
+            visitor.visit_generics(generics);
+            visitor.visit_enum_def(enum_definition, generics, item.id, item.span)
         }
         ItemKind::Impl(_, _, _,
-                 ref type_parameters,
+                 ref generics,
                  ref opt_trait_reference,
                  ref typ,
                  ref impl_items) => {
-            visitor.visit_generics(type_parameters);
+            visitor.visit_generics(generics);
             walk_list!(visitor, visit_trait_ref, opt_trait_reference);
             visitor.visit_ty(typ);
             walk_list!(visitor, visit_impl_item, impl_items);
@@ -323,7 +319,7 @@ pub fn walk_ty<'a, V: Visitor<'a>>(visitor: &mut V, typ: &'a Ty) {
             walk_list!(visitor, visit_lifetime, opt_lifetime);
             visitor.visit_ty(&mutable_type.ty)
         }
-        TyKind::Never => {},
+        TyKind::Never | TyKind::CVarArgs => {}
         TyKind::Tup(ref tuple_element_types) => {
             walk_list!(visitor, visit_ty, tuple_element_types);
         }
@@ -495,6 +491,7 @@ pub fn walk_generic_param<'a, V: Visitor<'a>>(visitor: &mut V, param: &'a Generi
     match param.kind {
         GenericParamKind::Lifetime => {}
         GenericParamKind::Type { ref default } => walk_list!(visitor, visit_ty, default),
+        GenericParamKind::Const { ref ty, .. } => visitor.visit_ty(ty),
     }
 }
 
@@ -546,11 +543,13 @@ pub fn walk_fn<'a, V>(visitor: &mut V, kind: FnKind<'a>, declaration: &'a FnDecl
     where V: Visitor<'a>,
 {
     match kind {
-        FnKind::ItemFn(_, _, _, body) => {
+        FnKind::ItemFn(_, header, _, body) => {
+            visitor.visit_fn_header(header);
             walk_fn_decl(visitor, declaration);
             visitor.visit_block(body);
         }
-        FnKind::Method(_, _, _, body) => {
+        FnKind::Method(_, sig, _, body) => {
+            visitor.visit_fn_header(&sig.header);
             walk_fn_decl(visitor, declaration);
             visitor.visit_block(body);
         }
@@ -571,6 +570,7 @@ pub fn walk_trait_item<'a, V: Visitor<'a>>(visitor: &mut V, trait_item: &'a Trai
             walk_list!(visitor, visit_expr, default);
         }
         TraitItemKind::Method(ref sig, None) => {
+            visitor.visit_fn_header(&sig.header);
             walk_fn_decl(visitor, &sig.decl);
         }
         TraitItemKind::Method(ref sig, Some(ref body)) => {
@@ -647,8 +647,8 @@ pub fn walk_stmt<'a, V: Visitor<'a>>(visitor: &mut V, statement: &'a Stmt) {
     }
 }
 
-pub fn walk_mac<'a, V: Visitor<'a>>(_: &mut V, _: &Mac) {
-    // Empty!
+pub fn walk_mac<'a, V: Visitor<'a>>(visitor: &mut V, mac: &'a Mac) {
+    visitor.visit_path(&mac.node.path, DUMMY_NODE_ID);
 }
 
 pub fn walk_anon_const<'a, V: Visitor<'a>>(visitor: &mut V, constant: &'a AnonConst) {
@@ -812,6 +812,7 @@ pub fn walk_expr<'a, V: Visitor<'a>>(visitor: &mut V, expression: &'a Expr) {
         ExprKind::TryBlock(ref body) => {
             visitor.visit_block(body)
         }
+        ExprKind::Err => {}
     }
 
     visitor.visit_expr_post(expression)
@@ -841,7 +842,7 @@ pub fn walk_attribute<'a, V: Visitor<'a>>(visitor: &mut V, attr: &'a Attribute) 
 pub fn walk_tt<'a, V: Visitor<'a>>(visitor: &mut V, tt: TokenTree) {
     match tt {
         TokenTree::Token(_, tok) => visitor.visit_token(tok),
-        TokenTree::Delimited(_, delimed) => visitor.visit_tts(delimed.stream()),
+        TokenTree::Delimited(_, _, tts) => visitor.visit_tts(tts),
     }
 }
 

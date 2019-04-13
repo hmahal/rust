@@ -1,13 +1,3 @@
-// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! A character type.
 //!
 //! The `char` type represents a single character. More specifically, since
@@ -40,7 +30,7 @@ pub use self::convert::{from_u32, from_digit};
 pub use self::convert::from_u32_unchecked;
 #[stable(feature = "char_from_str", since = "1.20.0")]
 pub use self::convert::ParseCharError;
-#[unstable(feature = "try_from", issue = "33417")]
+#[stable(feature = "try_from", since = "1.34.0")]
 pub use self::convert::CharTryFromError;
 #[stable(feature = "decode_utf16", since = "1.9.0")]
 pub use self::decode::{decode_utf16, DecodeUtf16, DecodeUtf16Error};
@@ -399,10 +389,16 @@ impl Iterator for ToLowercase {
     fn next(&mut self) -> Option<char> {
         self.0.next()
     }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
 }
 
 #[stable(feature = "fused", since = "1.26.0")]
 impl FusedIterator for ToLowercase {}
+
+#[stable(feature = "exact_size_case_mapping_iter", since = "1.35.0")]
+impl ExactSizeIterator for ToLowercase {}
 
 /// Returns an iterator that yields the uppercase equivalent of a `char`.
 ///
@@ -421,10 +417,16 @@ impl Iterator for ToUppercase {
     fn next(&mut self) -> Option<char> {
         self.0.next()
     }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
 }
 
 #[stable(feature = "fused", since = "1.26.0")]
 impl FusedIterator for ToUppercase {}
+
+#[stable(feature = "exact_size_case_mapping_iter", since = "1.35.0")]
+impl ExactSizeIterator for ToUppercase {}
 
 #[derive(Debug, Clone)]
 enum CaseMappingIter {
@@ -466,6 +468,16 @@ impl Iterator for CaseMappingIter {
             }
             CaseMappingIter::Zero => None,
         }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let size = match self {
+            CaseMappingIter::Three(..) => 3,
+            CaseMappingIter::Two(..) => 2,
+            CaseMappingIter::One(_) => 1,
+            CaseMappingIter::Zero => 0,
+        };
+        (size, Some(size))
     }
 }
 

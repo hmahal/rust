@@ -1,13 +1,3 @@
-// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Sanity checking performed by rustbuild before actually executing anything.
 //!
 //! This module contains the implementation of ensuring that the build
@@ -27,7 +17,7 @@ use std::process::Command;
 
 use build_helper::output;
 
-use Build;
+use crate::Build;
 
 struct Finder {
     cache: HashMap<OsString, Option<PathBuf>>,
@@ -44,15 +34,17 @@ impl Finder {
 
     fn maybe_have<S: AsRef<OsStr>>(&mut self, cmd: S) -> Option<PathBuf> {
         let cmd: OsString = cmd.as_ref().into();
-        let path = self.path.clone();
+        let path = &self.path;
         self.cache.entry(cmd.clone()).or_insert_with(|| {
-            for path in env::split_paths(&path) {
+            for path in env::split_paths(path) {
                 let target = path.join(&cmd);
-                let mut cmd_alt = cmd.clone();
-                cmd_alt.push(".exe");
-                if target.is_file() || // some/path/git
-                target.with_extension("exe").exists() || // some/path/git.exe
-                target.join(&cmd_alt).exists() { // some/path/git/git.exe
+                let mut cmd_exe = cmd.clone();
+                cmd_exe.push(".exe");
+
+                if target.is_file()                   // some/path/git
+                    || path.join(&cmd_exe).exists()   // some/path/git.exe
+                    || target.join(&cmd_exe).exists() // some/path/git/git.exe
+                {
                     return Some(target);
                 }
             }
@@ -117,9 +109,9 @@ pub fn check(build: &mut Build) {
     }
 
     build.config.python = build.config.python.take().map(|p| cmd_finder.must_have(p))
-        .or_else(|| env::var_os("BOOTSTRAP_PYTHON").map(PathBuf::from)) // set by bootstrap.py
         .or_else(|| cmd_finder.maybe_have("python2.7"))
         .or_else(|| cmd_finder.maybe_have("python2"))
+        .or_else(|| env::var_os("BOOTSTRAP_PYTHON").map(PathBuf::from)) // set by bootstrap.py
         .or_else(|| Some(cmd_finder.must_have("python")));
 
     build.config.nodejs = build.config.nodejs.take().map(|p| cmd_finder.must_have(p))
@@ -136,6 +128,11 @@ pub fn check(build: &mut Build) {
         // build the target artifacts, only for testing. For the sake
         // of easier bot configuration, just skip detection.
         if target.contains("emscripten") {
+            continue;
+        }
+
+        // We don't use a C compiler on wasm32
+        if target.contains("wasm32") {
             continue;
         }
 
@@ -166,7 +163,7 @@ pub fn check(build: &mut Build) {
             panic!("the iOS target is only supported on macOS");
         }
 
-        if target.contains("-none-") {
+        if target.contains("-none-") || target.contains("nvptx") {
             if build.no_std(*target).is_none() {
                 let target = build.config.target_config.entry(target.clone())
                     .or_default();
@@ -175,7 +172,7 @@ pub fn check(build: &mut Build) {
             }
 
             if build.no_std(*target) == Some(false) {
-                panic!("All the *-none-* targets are no-std targets")
+                panic!("All the *-none-* and nvptx* targets are no-std targets")
             }
         }
 

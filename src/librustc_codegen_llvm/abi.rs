@@ -1,22 +1,12 @@
-// Copyright 2012-2016 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-use llvm::{self, AttributePlace};
+use crate::llvm::{self, AttributePlace};
+use crate::builder::Builder;
+use crate::context::CodegenCx;
+use crate::type_::Type;
+use crate::type_of::{LayoutLlvmExt, PointerKind};
+use crate::value::Value;
 use rustc_codegen_ssa::MemFlags;
-use builder::Builder;
-use context::CodegenCx;
 use rustc_codegen_ssa::mir::place::PlaceRef;
 use rustc_codegen_ssa::mir::operand::OperandValue;
-use type_::Type;
-use type_of::{LayoutLlvmExt, PointerKind};
-use value::Value;
 use rustc_target::abi::call::ArgType;
 
 use rustc_codegen_ssa::traits::*;
@@ -184,13 +174,13 @@ pub trait ArgTypeExt<'ll, 'tcx> {
 }
 
 impl ArgTypeExt<'ll, 'tcx> for ArgType<'tcx, Ty<'tcx>> {
-    /// Get the LLVM type for a place of the original Rust type of
+    /// Gets the LLVM type for a place of the original Rust type of
     /// this argument/return, i.e., the result of `type_of::type_of`.
     fn memory_ty(&self, cx: &CodegenCx<'ll, 'tcx>) -> &'ll Type {
         self.layout.llvm_type(cx)
     }
 
-    /// Store a direct/indirect value described by this ArgType into a
+    /// Stores a direct/indirect value described by this ArgType into a
     /// place for the original Rust type of this argument/return.
     /// Can be used for both storing formal arguments into Rust variables
     /// or results of call/invoke instructions into their destinations.
@@ -268,7 +258,7 @@ impl ArgTypeExt<'ll, 'tcx> for ArgType<'tcx, Ty<'tcx>> {
             val
         };
         match self.mode {
-            PassMode::Ignore => {},
+            PassMode::Ignore(_) => {}
             PassMode::Pair(..) => {
                 OperandValue::Pair(next(), next()).store(bx, dst);
             }
@@ -276,7 +266,8 @@ impl ArgTypeExt<'ll, 'tcx> for ArgType<'tcx, Ty<'tcx>> {
                 OperandValue::Ref(next(), Some(next()), self.layout.align.abi).store(bx, dst);
             }
             PassMode::Direct(_) | PassMode::Indirect(_, None) | PassMode::Cast(_) => {
-                self.store(bx, next(), dst);
+                let next_arg = next();
+                self.store(bx, next_arg, dst);
             }
         }
     }
@@ -432,7 +423,7 @@ impl<'tcx> FnTypeExt<'tcx> for FnType<'tcx, Ty<'tcx>> {
 
         let mut inputs = sig.inputs();
         let extra_args = if sig.abi == RustCall {
-            assert!(!sig.variadic && extra_args.is_empty());
+            assert!(!sig.c_variadic && extra_args.is_empty());
 
             match sig.inputs().last().unwrap().sty {
                 ty::Tuple(ref tupled_arguments) => {
@@ -445,7 +436,7 @@ impl<'tcx> FnTypeExt<'tcx> for FnType<'tcx, Ty<'tcx>> {
                 }
             }
         } else {
-            assert!(sig.variadic || extra_args.is_empty());
+            assert!(sig.c_variadic || extra_args.is_empty());
             extra_args
         };
 
@@ -455,6 +446,9 @@ impl<'tcx> FnTypeExt<'tcx> for FnType<'tcx, Ty<'tcx>> {
                        && target.target_env == "gnu";
         let linux_s390x = target.target_os == "linux"
                        && target.arch == "s390x"
+                       && target.target_env == "gnu";
+        let linux_sparc64 = target.target_os == "linux"
+                       && target.arch == "sparc64"
                        && target.target_env == "gnu";
         let rust_abi = match sig.abi {
             RustIntrinsic | PlatformIntrinsic | Rust | RustCall => true,
@@ -489,12 +483,6 @@ impl<'tcx> FnTypeExt<'tcx> for FnType<'tcx, Ty<'tcx>> {
                     attrs.pointee_size = pointee.size;
                     attrs.pointee_align = Some(pointee.align);
 
-                    // HACK(eddyb) LLVM inserts `llvm.assume` calls when inlining functions
-                    // with align attributes, and those calls later block optimizations.
-                    if !is_return && !cx.tcx.sess.opts.debugging_opts.arg_align_attributes {
-                        attrs.pointee_align = None;
-                    }
-
                     // `Box` pointer parameters never alias because ownership is transferred
                     // `&mut` pointer parameters never alias other parameters,
                     // or mutable global data
@@ -520,15 +508,47 @@ impl<'tcx> FnTypeExt<'tcx> for FnType<'tcx, Ty<'tcx>> {
             }
         };
 
+        // Store the index of the last argument. This is useful for working with
+        // C-compatible variadic arguments.
+        let last_arg_idx = if sig.inputs().is_empty() {
+            None
+        } else {
+            Some(sig.inputs().len() - 1)
+        };
+
         let arg_of = |ty: Ty<'tcx>, arg_idx: Option<usize>| {
             let is_return = arg_idx.is_none();
             let mut arg = mk_arg_type(ty, arg_idx);
             if arg.layout.is_zst() {
                 // For some forsaken reason, x86_64-pc-windows-gnu
                 // doesn't ignore zero-sized struct arguments.
-                // The same is true for s390x-unknown-linux-gnu.
-                if is_return || rust_abi || (!win_x64_gnu && !linux_s390x) {
-                    arg.mode = PassMode::Ignore;
+                // The same is true for s390x-unknown-linux-gnu
+                // and sparc64-unknown-linux-gnu.
+                if is_return || rust_abi || (!win_x64_gnu && !linux_s390x && !linux_sparc64) {
+                    arg.mode = PassMode::Ignore(IgnoreMode::Zst);
+                }
+            }
+
+            // If this is a C-variadic function, this is not the return value,
+            // and there is one or more fixed arguments; ensure that the `VaList`
+            // is ignored as an argument.
+            if sig.c_variadic {
+                match (last_arg_idx, arg_idx) {
+                    (Some(last_idx), Some(cur_idx)) if last_idx == cur_idx => {
+                        let va_list_did = match cx.tcx.lang_items().va_list() {
+                            Some(did) => did,
+                            None => bug!("`va_list` lang item required for C-variadic functions"),
+                        };
+                        match ty.sty {
+                            ty::Adt(def, _) if def.did == va_list_did => {
+                                // This is the "spoofed" `VaList`. Set the arguments mode
+                                // so that it will be ignored.
+                                arg.mode = PassMode::Ignore(IgnoreMode::CVarArgs);
+                            },
+                            _ => (),
+                        }
+                    }
+                    _ => {}
                 }
             }
 
@@ -570,7 +590,7 @@ impl<'tcx> FnTypeExt<'tcx> for FnType<'tcx, Ty<'tcx>> {
             args: inputs.iter().chain(extra_args).enumerate().map(|(i, ty)| {
                 arg_of(ty, Some(i))
             }).collect(),
-            variadic: sig.variadic,
+            c_variadic: sig.c_variadic,
             conv,
         };
         fn_ty.adjust_for_abi(cx, sig.abi);
@@ -658,7 +678,9 @@ impl<'tcx> FnTypeExt<'tcx> for FnType<'tcx, Ty<'tcx>> {
         );
 
         let llreturn_ty = match self.ret.mode {
-            PassMode::Ignore => cx.type_void(),
+            PassMode::Ignore(IgnoreMode::Zst) => cx.type_void(),
+            PassMode::Ignore(IgnoreMode::CVarArgs) =>
+                bug!("`va_list` should never be a return type"),
             PassMode::Direct(_) | PassMode::Pair(..) => {
                 self.ret.layout.immediate_llvm_type(cx)
             }
@@ -676,7 +698,7 @@ impl<'tcx> FnTypeExt<'tcx> for FnType<'tcx, Ty<'tcx>> {
             }
 
             let llarg_ty = match arg.mode {
-                PassMode::Ignore => continue,
+                PassMode::Ignore(_) => continue,
                 PassMode::Direct(_) => arg.layout.immediate_llvm_type(cx),
                 PassMode::Pair(..) => {
                     llargument_tys.push(arg.layout.scalar_pair_element_llvm_type(cx, 0, true));
@@ -696,7 +718,7 @@ impl<'tcx> FnTypeExt<'tcx> for FnType<'tcx, Ty<'tcx>> {
             llargument_tys.push(llarg_ty);
         }
 
-        if self.variadic {
+        if self.c_variadic {
             cx.type_variadic_func(&llargument_tys, llreturn_ty)
         } else {
             cx.type_func(&llargument_tys, llreturn_ty)
@@ -745,7 +767,7 @@ impl<'tcx> FnTypeExt<'tcx> for FnType<'tcx, Ty<'tcx>> {
                 apply(&ArgAttributes::new());
             }
             match arg.mode {
-                PassMode::Ignore => {}
+                PassMode::Ignore(_) => {}
                 PassMode::Direct(ref attrs) |
                 PassMode::Indirect(ref attrs, None) => apply(attrs),
                 PassMode::Indirect(ref attrs, Some(ref extra_attrs)) => {
@@ -792,7 +814,7 @@ impl<'tcx> FnTypeExt<'tcx> for FnType<'tcx, Ty<'tcx>> {
                 apply(&ArgAttributes::new());
             }
             match arg.mode {
-                PassMode::Ignore => {}
+                PassMode::Ignore(_) => {}
                 PassMode::Direct(ref attrs) |
                 PassMode::Indirect(ref attrs, None) => apply(attrs),
                 PassMode::Indirect(ref attrs, Some(ref extra_attrs)) => {
@@ -837,5 +859,9 @@ impl AbiBuilderMethods<'tcx> for Builder<'a, 'll, 'tcx> {
         callsite: Self::Value
     ) {
         ty.apply_attrs_callsite(self, callsite)
+    }
+
+    fn get_param(&self, index: usize) -> Self::Value {
+        llvm::get_param(self.llfn(), index as c_uint)
     }
 }

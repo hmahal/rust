@@ -1,14 +1,4 @@
-// Copyright 2018 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-use time::Duration;
+use crate::time::Duration;
 use super::abi::usercalls;
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
@@ -24,16 +14,24 @@ impl Instant {
         Instant(usercalls::insecure_time())
     }
 
-    pub fn sub_instant(&self, other: &Instant) -> Duration {
-        self.0 - other.0
+    pub fn checked_sub_instant(&self, other: &Instant) -> Option<Duration> {
+        self.0.checked_sub(other.0)
     }
 
-    pub fn add_duration(&self, other: &Duration) -> Instant {
-        Instant(self.0 + *other)
+    pub fn checked_add_duration(&self, other: &Duration) -> Option<Instant> {
+        Some(Instant(self.0.checked_add(*other)?))
     }
 
-    pub fn sub_duration(&self, other: &Duration) -> Instant {
-        Instant(self.0 - *other)
+    pub fn checked_sub_duration(&self, other: &Duration) -> Option<Instant> {
+        Some(Instant(self.0.checked_sub(*other)?))
+    }
+
+    pub fn actually_monotonic() -> bool {
+        false
+    }
+
+    pub const fn zero() -> Instant {
+        Instant(Duration::from_secs(0))
     }
 }
 
@@ -47,15 +45,11 @@ impl SystemTime {
         self.0.checked_sub(other.0).ok_or_else(|| other.0 - self.0)
     }
 
-    pub fn add_duration(&self, other: &Duration) -> SystemTime {
-        SystemTime(self.0 + *other)
-    }
-
     pub fn checked_add_duration(&self, other: &Duration) -> Option<SystemTime> {
-        self.0.checked_add(*other).map(|d| SystemTime(d))
+        Some(SystemTime(self.0.checked_add(*other)?))
     }
 
-    pub fn sub_duration(&self, other: &Duration) -> SystemTime {
-        SystemTime(self.0 - *other)
+    pub fn checked_sub_duration(&self, other: &Duration) -> Option<SystemTime> {
+        Some(SystemTime(self.0.checked_sub(*other)?))
     }
 }

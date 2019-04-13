@@ -1,29 +1,18 @@
-// Copyright 2017 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Replaces 128-bit operators with lang item calls
 
 use rustc::hir::def_id::DefId;
 use rustc::middle::lang_items::LangItem;
 use rustc::mir::*;
-use rustc::ty::{List, Ty, TyCtxt, TyKind};
+use rustc::ty::{self, List, Ty, TyCtxt};
 use rustc_data_structures::indexed_vec::{Idx};
-use transform::{MirPass, MirSource};
-use syntax;
+use crate::transform::{MirPass, MirSource};
 
 pub struct Lower128Bit;
 
 impl MirPass for Lower128Bit {
     fn run_pass<'a, 'tcx>(&self,
                           tcx: TyCtxt<'a, 'tcx, 'tcx>,
-                          _src: MirSource,
+                          _src: MirSource<'tcx>,
                           mir: &mut Mir<'tcx>) {
         let debugging_override = tcx.sess.opts.debugging_opts.lower_128bit_ops;
         let target_default = tcx.sess.host.options.i128_lowering;
@@ -97,13 +86,13 @@ impl Lower128Bit {
                     block.statements.push(Statement {
                         source_info: source_info,
                         kind: StatementKind::Assign(
-                            Place::Local(local),
+                            Place::Base(PlaceBase::Local(local)),
                             box Rvalue::Cast(
                                 CastKind::Misc,
                                 rhs,
                                 rhs_override_ty.unwrap())),
                     });
-                    rhs = Operand::Move(Place::Local(local));
+                    rhs = Operand::Move(Place::Base(PlaceBase::Local(local)));
                 }
 
                 let call_did = check_lang_item_type(
@@ -146,10 +135,10 @@ fn check_lang_item_type<'a, 'tcx, D>(
     let sig = poly_sig.no_bound_vars().unwrap();
     let lhs_ty = lhs.ty(local_decls, tcx);
     let rhs_ty = rhs.ty(local_decls, tcx);
-    let place_ty = place.ty(local_decls, tcx).to_ty(tcx);
+    let place_ty = place.ty(local_decls, tcx).ty;
     let expected = [lhs_ty, rhs_ty, place_ty];
     assert_eq!(sig.inputs_and_output[..], expected,
-        "lang item {}", tcx.def_symbol_name(did));
+        "lang item `{}`", tcx.def_path_str(did));
     did
 }
 
@@ -192,10 +181,10 @@ impl RhsKind {
     }
 }
 
-fn sign_of_128bit(ty: Ty) -> Option<bool> {
+fn sign_of_128bit(ty: Ty<'_>) -> Option<bool> {
     match ty.sty {
-        TyKind::Int(syntax::ast::IntTy::I128) => Some(true),
-        TyKind::Uint(syntax::ast::UintTy::U128) => Some(false),
+        ty::Int(syntax::ast::IntTy::I128) => Some(true),
+        ty::Uint(syntax::ast::UintTy::U128) => Some(false),
         _ => None,
     }
 }

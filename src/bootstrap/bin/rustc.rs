@@ -1,13 +1,3 @@
-// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Shim which is passed to Cargo as "rustc" when running the bootstrap.
 //!
 //! This shim will take care of some various tasks that our build process
@@ -26,8 +16,6 @@
 //! never get replaced.
 
 #![deny(warnings)]
-
-extern crate bootstrap;
 
 use std::env;
 use std::ffi::OsString;
@@ -119,6 +107,14 @@ fn main() {
         // actually downloaded, so we just always pass the `--sysroot` option.
         cmd.arg("--sysroot").arg(&sysroot);
 
+        cmd.arg("-Zexternal-macro-backtrace");
+
+        // Link crates to the proc macro crate for the target, but use a host proc macro crate
+        // to actually run the macros
+        if env::var_os("RUST_DUAL_PROC_MACROS").is_some() {
+            cmd.arg("-Zdual-proc-macros");
+        }
+
         // When we build Rust dylibs they're all intended for intermediate
         // usage, so make sure we pass the -Cprefer-dynamic flag instead of
         // linking all deps statically into the dylib.
@@ -126,8 +122,8 @@ fn main() {
             cmd.arg("-Cprefer-dynamic");
         }
 
-        // Help the libc crate compile by assisting it in finding the MUSL
-        // native libraries.
+        // Help the libc crate compile by assisting it in finding various
+        // sysroot native libraries.
         if let Some(s) = env::var_os("MUSL_ROOT") {
             if target.contains("musl") {
                 let mut root = OsString::from("native=");
@@ -135,6 +131,12 @@ fn main() {
                 root.push("/lib");
                 cmd.arg("-L").arg(&root);
             }
+        }
+        if let Some(s) = env::var_os("WASI_ROOT") {
+            let mut root = OsString::from("native=");
+            root.push(&s);
+            root.push("/lib/wasm32-wasi");
+            cmd.arg("-L").arg(&root);
         }
 
         // Override linker if necessary.
@@ -183,6 +185,33 @@ fn main() {
             cmd.arg("-C").arg("debug-assertions=no");
         } else {
             cmd.arg("-C").arg(format!("debug-assertions={}", debug_assertions));
+        }
+
+        // Build all crates in the `std` facade with `-Z emit-stack-sizes` to add stack usage
+        // information.
+        //
+        // When you use this `-Z` flag with Cargo you get stack usage information on all crates
+        // compiled from source, and when you are using LTO you also get information on pre-compiled
+        // crates like `core` and `std`, even if they were not compiled with `-Z emit-stack-sizes`.
+        // However, there's an exception: `compiler_builtins`. This crate is special and doesn't
+        // participate in LTO because it's always linked as a separate object file. For this reason
+        // it's impossible to get stack usage information about `compiler-builtins` using
+        // `RUSTFLAGS` + Cargo, or `cargo rustc`.
+        //
+        // To make the stack usage information of all crates under the `std` facade available to
+        // Cargo based stack usage analysis tools, in both LTO and non-LTO mode, we compile them
+        // with the `-Z emit-stack-sizes` flag. The `RUSTC_EMIT_STACK_SIZES` var helps us apply this
+        // flag only to the crates in the `std` facade. The `-Z` flag is known to currently work
+        // with targets that produce ELF files so we limit its use flag to those targets.
+        //
+        // NOTE(japaric) if this ever causes problem with an LLVM upgrade or any PR feel free to
+        // remove it or comment it out
+        if env::var_os("RUSTC_EMIT_STACK_SIZES").is_some()
+            && (target.contains("-linux-")
+                || target.contains("-none-eabi")
+                || target.ends_with("-none-elf"))
+        {
+            cmd.arg("-Zemit-stack-sizes");
         }
 
         if let Ok(s) = env::var("RUSTC_CODEGEN_UNITS") {
@@ -268,13 +297,6 @@ fn main() {
             }
         }
 
-        // Force all crates compiled by this compiler to (a) be unstable and (b)
-        // allow the `rustc_private` feature to link to other unstable crates
-        // also in the sysroot.
-        if env::var_os("RUSTC_FORCE_UNSTABLE").is_some() {
-            cmd.arg("-Z").arg("force-unstable-if-unmarked");
-        }
-
         if let Ok(map) = env::var("RUSTC_DEBUGINFO_MAP") {
             cmd.arg("--remap-path-prefix").arg(&map);
         }
@@ -294,8 +316,21 @@ fn main() {
         }
     }
 
-    if env::var_os("RUSTC_PARALLEL_QUERIES").is_some() {
-        cmd.arg("--cfg").arg("parallel_queries");
+    // This is required for internal lints.
+    if stage != "0" {
+        cmd.arg("-Zunstable-options");
+    }
+
+    // Force all crates compiled by this compiler to (a) be unstable and (b)
+    // allow the `rustc_private` feature to link to other unstable crates
+    // also in the sysroot. We also do this for host crates, since those
+    // may be proc macros, in which case we might ship them.
+    if env::var_os("RUSTC_FORCE_UNSTABLE").is_some() && (stage != "0" || target.is_some()) {
+        cmd.arg("-Z").arg("force-unstable-if-unmarked");
+    }
+
+    if env::var_os("RUSTC_PARALLEL_COMPILER").is_some() {
+        cmd.arg("--cfg").arg("parallel_compiler");
     }
 
     if env::var_os("RUSTC_DENY_WARNINGS").is_some() && env::var_os("RUSTC_EXTERNAL_TOOL").is_none()

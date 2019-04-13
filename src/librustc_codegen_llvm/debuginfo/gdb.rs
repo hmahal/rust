@@ -1,21 +1,11 @@
-// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 // .debug_gdb_scripts binary section.
 
-use llvm;
+use crate::llvm;
 
-use common::CodegenCx;
-use builder::Builder;
+use crate::common::CodegenCx;
+use crate::builder::Builder;
+use crate::value::Value;
 use rustc::session::config::DebugInfo;
-use value::Value;
 use rustc_codegen_ssa::traits::*;
 
 use syntax::attr;
@@ -23,7 +13,7 @@ use syntax::attr;
 
 /// Inserts a side-effect free instruction sequence that makes sure that the
 /// .debug_gdb_scripts global is referenced, so it isn't removed by the linker.
-pub fn insert_reference_to_gdb_debug_scripts_section_global(bx: &mut Builder) {
+pub fn insert_reference_to_gdb_debug_scripts_section_global(bx: &mut Builder<'_, '_, '_>) {
     if needs_gdb_debug_scripts_section(bx) {
         let gdb_debug_scripts_section = get_or_insert_gdb_debug_scripts_section_global(bx);
         // Load just the first byte as that's all that's necessary to force
@@ -74,7 +64,7 @@ pub fn get_or_insert_gdb_debug_scripts_section_global(cx: &CodegenCx<'ll, '_>)
     })
 }
 
-pub fn needs_gdb_debug_scripts_section(cx: &CodegenCx) -> bool {
+pub fn needs_gdb_debug_scripts_section(cx: &CodegenCx<'_, '_>) -> bool {
     let omit_gdb_pretty_printer_section =
         attr::contains_name(&cx.tcx.hir().krate_attrs(),
                             "omit_gdb_pretty_printer_section");

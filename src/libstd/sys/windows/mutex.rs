@@ -1,13 +1,3 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! System Mutexes
 //!
 //! The Windows implementation of mutexes is a little odd and it may not be
@@ -29,11 +19,11 @@
 //! CriticalSection is used and we keep track of who's holding the mutex to
 //! detect recursive locks.
 
-use cell::UnsafeCell;
-use mem::{self, MaybeUninit};
-use sync::atomic::{AtomicUsize, Ordering};
-use sys::c;
-use sys::compat;
+use crate::cell::UnsafeCell;
+use crate::mem::{self, MaybeUninit};
+use crate::sync::atomic::{AtomicUsize, Ordering};
+use crate::sys::c;
+use crate::sys::compat;
 
 pub struct Mutex {
     lock: AtomicUsize,
@@ -164,7 +154,7 @@ unsafe impl Sync for ReentrantMutex {}
 
 impl ReentrantMutex {
     pub fn uninitialized() -> ReentrantMutex {
-        ReentrantMutex { inner: UnsafeCell::new(MaybeUninit::uninitialized()) }
+        ReentrantMutex { inner: UnsafeCell::new(MaybeUninit::uninit()) }
     }
 
     pub unsafe fn init(&mut self) {

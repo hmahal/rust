@@ -1,24 +1,13 @@
-// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Unix-specific extensions to primitives in the `std::fs` module.
 
 #![stable(feature = "rust1", since = "1.0.0")]
 
-use fs::{self, Permissions, OpenOptions};
-use io;
-use libc;
-use path::Path;
-use sys;
-use sys_common::{FromInner, AsInner, AsInnerMut};
-use sys::platform::fs::MetadataExt as UnixMetadataExt;
+use crate::fs::{self, Permissions, OpenOptions};
+use crate::io;
+use crate::path::Path;
+use crate::sys;
+use crate::sys_common::{FromInner, AsInner, AsInnerMut};
+use crate::sys::platform::fs::MetadataExt as UnixMetadataExt;
 
 /// Unix-specific extensions to [`File`].
 ///
@@ -94,7 +83,6 @@ pub trait FileExt {
     /// # Examples
     ///
     /// ```no_run
-    /// #![feature(rw_exact_all_at)]
     /// use std::io;
     /// use std::fs::File;
     /// use std::os::unix::prelude::FileExt;
@@ -109,7 +97,7 @@ pub trait FileExt {
     ///     Ok(())
     /// }
     /// ```
-    #[unstable(feature = "rw_exact_all_at", issue = "51984")]
+    #[stable(feature = "rw_exact_all_at", since = "1.33.0")]
     fn read_exact_at(&self, mut buf: &mut [u8], mut offset: u64) -> io::Result<()> {
         while !buf.is_empty() {
             match self.read_at(buf, offset) {
@@ -191,7 +179,6 @@ pub trait FileExt {
     /// # Examples
     ///
     /// ```no_run
-    /// #![feature(rw_exact_all_at)]
     /// use std::fs::File;
     /// use std::io;
     /// use std::os::unix::prelude::FileExt;
@@ -204,7 +191,7 @@ pub trait FileExt {
     ///     Ok(())
     /// }
     /// ```
-    #[unstable(feature = "rw_exact_all_at", issue = "51984")]
+    #[stable(feature = "rw_exact_all_at", since = "1.33.0")]
     fn write_all_at(&self, mut buf: &[u8], mut offset: u64) -> io::Result<()> {
         while !buf.is_empty() {
             match self.write_at(buf, offset) {
@@ -348,7 +335,7 @@ pub trait OpenOptionsExt {
     /// # Examples
     ///
     /// ```no_run
-    /// # #![feature(libc)]
+    /// # #![feature(rustc_private)]
     /// extern crate libc;
     /// use std::fs::OpenOptions;
     /// use std::os::unix::fs::OpenOptionsExt;
@@ -696,7 +683,7 @@ impl MetadataExt for fs::Metadata {
 /// [`FileType`]: ../../../../std/fs/struct.FileType.html
 #[stable(feature = "file_type_ext", since = "1.5.0")]
 pub trait FileTypeExt {
-    /// Returns whether this file type is a block device.
+    /// Returns `true` if this file type is a block device.
     ///
     /// # Examples
     ///
@@ -714,7 +701,7 @@ pub trait FileTypeExt {
     /// ```
     #[stable(feature = "file_type_ext", since = "1.5.0")]
     fn is_block_device(&self) -> bool;
-    /// Returns whether this file type is a char device.
+    /// Returns `true` if this file type is a char device.
     ///
     /// # Examples
     ///
@@ -732,7 +719,7 @@ pub trait FileTypeExt {
     /// ```
     #[stable(feature = "file_type_ext", since = "1.5.0")]
     fn is_char_device(&self) -> bool;
-    /// Returns whether this file type is a fifo.
+    /// Returns `true` if this file type is a fifo.
     ///
     /// # Examples
     ///
@@ -750,7 +737,7 @@ pub trait FileTypeExt {
     /// ```
     #[stable(feature = "file_type_ext", since = "1.5.0")]
     fn is_fifo(&self) -> bool;
-    /// Returns whether this file type is a socket.
+    /// Returns `true` if this file type is a socket.
     ///
     /// # Examples
     ///
@@ -817,9 +804,9 @@ impl DirEntryExt for fs::DirEntry {
 /// # Note
 ///
 /// On Windows, you must specify whether a symbolic link points to a file
-/// or directory.  Use `os::windows::fs::symlink_file` to create a
+/// or directory. Use `os::windows::fs::symlink_file` to create a
 /// symbolic link to a file, or `os::windows::fs::symlink_dir` to create a
-/// symbolic link to a directory.  Additionally, the process must have
+/// symbolic link to a directory. Additionally, the process must have
 /// `SeCreateSymbolicLinkPrivilege` in order to be able to create a
 /// symbolic link.
 ///

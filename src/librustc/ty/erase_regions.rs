@@ -1,15 +1,5 @@
-// Copyright 2017 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-use ty::{self, Ty, TyCtxt};
-use ty::fold::{TypeFolder, TypeFoldable};
+use crate::ty::{self, Ty, TyCtxt, TypeFlags};
+use crate::ty::fold::{TypeFolder, TypeFoldable};
 
 pub(super) fn provide(providers: &mut ty::query::Providers<'_>) {
     *providers = ty::query::Providers {
@@ -31,6 +21,11 @@ impl<'a, 'gcx, 'tcx> TyCtxt<'a, 'gcx, 'tcx> {
     pub fn erase_regions<T>(self, value: &T) -> T
         where T : TypeFoldable<'tcx>
     {
+        // If there's nothing to erase avoid performing the query at all
+        if !value.has_type_flags(TypeFlags::HAS_RE_LATE_BOUND | TypeFlags::HAS_FREE_REGIONS) {
+            return value.clone();
+        }
+
         let value1 = value.fold_with(&mut RegionEraserVisitor { tcx: self });
         debug!("erase_regions({:?}) = {:?}", value, value1);
         value1

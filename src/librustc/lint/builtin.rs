@@ -1,22 +1,12 @@
-// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Some lints that are built in to the compiler.
 //!
 //! These are the built-in lints that are emitted direct in the main
 //! compiler code, rather than using their own custom pass. Those
 //! lints are all available in `rustc_lint::builtin`.
 
+use crate::lint::{LintPass, LateLintPass, LintArray};
+use crate::session::Session;
 use errors::{Applicability, DiagnosticBuilder};
-use lint::{LintPass, LateLintPass, LintArray};
-use session::Session;
 use syntax::ast;
 use syntax::source_map::Span;
 
@@ -136,6 +126,12 @@ declare_lint! {
 }
 
 declare_lint! {
+    pub EXPORTED_PRIVATE_DEPENDENCIES,
+    Warn,
+    "public interface leaks type from a private dependency"
+}
+
+declare_lint! {
     pub PUB_USE_OF_PRIVATE_EXTERN_CRATE,
     Deny,
     "detect public re-exports of private extern crates"
@@ -209,9 +205,9 @@ declare_lint! {
 }
 
 declare_lint! {
-    pub BAD_REPR,
-    Warn,
-    "detects incorrect use of `repr` attribute"
+    pub ORDER_DEPENDENT_TRAIT_OBJECTS,
+    Deny,
+    "trait-object types were treated as different depending on marker-trait order"
 }
 
 declare_lint! {
@@ -290,7 +286,7 @@ declare_lint! {
 
 declare_lint! {
     pub IRREFUTABLE_LET_PATTERNS,
-    Deny,
+    Warn,
     "detects irrefutable patterns in if-let and while-let statements"
 }
 
@@ -309,19 +305,19 @@ declare_lint! {
 declare_lint! {
     pub INTRA_DOC_LINK_RESOLUTION_FAILURE,
     Warn,
-    "warn about documentation intra links resolution failure"
+    "failures in resolving intra-doc link targets"
 }
 
 declare_lint! {
     pub MISSING_DOC_CODE_EXAMPLES,
     Allow,
-    "warn about missing code example in an item's documentation"
+    "detects publicly-exported items without code samples in their documentation"
 }
 
 declare_lint! {
     pub PRIVATE_DOC_TESTS,
     Allow,
-    "warn about doc test in private item"
+    "detects code samples in docs of private items not documented by rustdoc"
 }
 
 declare_lint! {
@@ -356,6 +352,12 @@ declare_lint! {
     "outlives requirements can be inferred"
 }
 
+declare_lint! {
+    pub DUPLICATE_MATCHER_BINDING_NAME,
+    Deny,
+    "duplicate macro matcher binding name"
+}
+
 /// Some lints that are buffered from `libsyntax`. See `syntax::early_buffered_lints`.
 pub mod parser {
     declare_lint! {
@@ -363,72 +365,106 @@ pub mod parser {
         Allow,
         "detects the use of `?` as a macro separator"
     }
+
+    declare_lint! {
+        pub ILL_FORMED_ATTRIBUTE_INPUT,
+        Warn,
+        "ill-formed attribute inputs that were previously accepted and used in practice"
+    }
 }
 
-/// Does nothing as a lint pass, but registers some `Lint`s
-/// that are used by other parts of the compiler.
-#[derive(Copy, Clone)]
-pub struct HardwiredLints;
+declare_lint! {
+    pub DEPRECATED_IN_FUTURE,
+    Allow,
+    "detects use of items that will be deprecated in a future version",
+    report_in_external_macro: true
+}
 
-impl LintPass for HardwiredLints {
-    fn get_lints(&self) -> LintArray {
-        lint_array!(
-            ILLEGAL_FLOATING_POINT_LITERAL_PATTERN,
-            EXCEEDING_BITSHIFTS,
-            UNUSED_IMPORTS,
-            UNUSED_EXTERN_CRATES,
-            UNUSED_QUALIFICATIONS,
-            UNKNOWN_LINTS,
-            UNUSED_VARIABLES,
-            UNUSED_ASSIGNMENTS,
-            DEAD_CODE,
-            UNREACHABLE_CODE,
-            UNREACHABLE_PATTERNS,
-            UNUSED_MACROS,
-            WARNINGS,
-            UNUSED_FEATURES,
-            STABLE_FEATURES,
-            UNKNOWN_CRATE_TYPES,
-            TRIVIAL_CASTS,
-            TRIVIAL_NUMERIC_CASTS,
-            PRIVATE_IN_PUBLIC,
-            PUB_USE_OF_PRIVATE_EXTERN_CRATE,
-            INVALID_TYPE_PARAM_DEFAULT,
-            CONST_ERR,
-            RENAMED_AND_REMOVED_LINTS,
-            SAFE_EXTERN_STATICS,
-            SAFE_PACKED_BORROWS,
-            PATTERNS_IN_FNS_WITHOUT_BODY,
-            LEGACY_DIRECTORY_OWNERSHIP,
-            LEGACY_CONSTRUCTOR_VISIBILITY,
-            MISSING_FRAGMENT_SPECIFIER,
-            PARENTHESIZED_PARAMS_IN_TYPES_AND_MODULES,
-            LATE_BOUND_LIFETIME_ARGUMENTS,
-            INCOHERENT_FUNDAMENTAL_IMPLS,
-            DEPRECATED,
-            UNUSED_UNSAFE,
-            UNUSED_MUT,
-            UNCONDITIONAL_RECURSION,
-            SINGLE_USE_LIFETIMES,
-            UNUSED_LIFETIMES,
-            UNUSED_LABELS,
-            TYVAR_BEHIND_RAW_POINTER,
-            ELIDED_LIFETIMES_IN_PATHS,
-            BARE_TRAIT_OBJECTS,
-            ABSOLUTE_PATHS_NOT_STARTING_WITH_CRATE,
-            UNSTABLE_NAME_COLLISIONS,
-            IRREFUTABLE_LET_PATTERNS,
-            DUPLICATE_MACRO_EXPORTS,
-            INTRA_DOC_LINK_RESOLUTION_FAILURE,
-            MISSING_DOC_CODE_EXAMPLES,
-            PRIVATE_DOC_TESTS,
-            WHERE_CLAUSES_OBJECT_SAFETY,
-            PROC_MACRO_DERIVE_RESOLUTION_FALLBACK,
-            MACRO_USE_EXTERN_CRATE,
-            MACRO_EXPANDED_MACRO_EXPORTS_ACCESSED_BY_ABSOLUTE_PATHS,
-            parser::QUESTION_MARK_MACRO_SEP,
-        )
-    }
+declare_lint! {
+    pub AMBIGUOUS_ASSOCIATED_ITEMS,
+    Warn,
+    "ambiguous associated items"
+}
+
+declare_lint! {
+    pub NESTED_IMPL_TRAIT,
+    Warn,
+    "nested occurrence of `impl Trait` type"
+}
+
+declare_lint! {
+    pub MUTABLE_BORROW_RESERVATION_CONFLICT,
+    Warn,
+    "reservation of a two-phased borrow conflicts with other shared borrows"
+}
+
+declare_lint_pass! {
+    /// Does nothing as a lint pass, but registers some `Lint`s
+    /// that are used by other parts of the compiler.
+    HardwiredLints => [
+        ILLEGAL_FLOATING_POINT_LITERAL_PATTERN,
+        EXCEEDING_BITSHIFTS,
+        UNUSED_IMPORTS,
+        UNUSED_EXTERN_CRATES,
+        UNUSED_QUALIFICATIONS,
+        UNKNOWN_LINTS,
+        UNUSED_VARIABLES,
+        UNUSED_ASSIGNMENTS,
+        DEAD_CODE,
+        UNREACHABLE_CODE,
+        UNREACHABLE_PATTERNS,
+        UNUSED_MACROS,
+        WARNINGS,
+        UNUSED_FEATURES,
+        STABLE_FEATURES,
+        UNKNOWN_CRATE_TYPES,
+        TRIVIAL_CASTS,
+        TRIVIAL_NUMERIC_CASTS,
+        PRIVATE_IN_PUBLIC,
+        EXPORTED_PRIVATE_DEPENDENCIES,
+        PUB_USE_OF_PRIVATE_EXTERN_CRATE,
+        INVALID_TYPE_PARAM_DEFAULT,
+        CONST_ERR,
+        RENAMED_AND_REMOVED_LINTS,
+        SAFE_EXTERN_STATICS,
+        SAFE_PACKED_BORROWS,
+        PATTERNS_IN_FNS_WITHOUT_BODY,
+        LEGACY_DIRECTORY_OWNERSHIP,
+        LEGACY_CONSTRUCTOR_VISIBILITY,
+        MISSING_FRAGMENT_SPECIFIER,
+        PARENTHESIZED_PARAMS_IN_TYPES_AND_MODULES,
+        LATE_BOUND_LIFETIME_ARGUMENTS,
+        INCOHERENT_FUNDAMENTAL_IMPLS,
+        ORDER_DEPENDENT_TRAIT_OBJECTS,
+        DEPRECATED,
+        UNUSED_UNSAFE,
+        UNUSED_MUT,
+        UNCONDITIONAL_RECURSION,
+        SINGLE_USE_LIFETIMES,
+        UNUSED_LIFETIMES,
+        UNUSED_LABELS,
+        TYVAR_BEHIND_RAW_POINTER,
+        ELIDED_LIFETIMES_IN_PATHS,
+        BARE_TRAIT_OBJECTS,
+        ABSOLUTE_PATHS_NOT_STARTING_WITH_CRATE,
+        UNSTABLE_NAME_COLLISIONS,
+        IRREFUTABLE_LET_PATTERNS,
+        DUPLICATE_MACRO_EXPORTS,
+        INTRA_DOC_LINK_RESOLUTION_FAILURE,
+        MISSING_DOC_CODE_EXAMPLES,
+        PRIVATE_DOC_TESTS,
+        WHERE_CLAUSES_OBJECT_SAFETY,
+        PROC_MACRO_DERIVE_RESOLUTION_FALLBACK,
+        MACRO_USE_EXTERN_CRATE,
+        MACRO_EXPANDED_MACRO_EXPORTS_ACCESSED_BY_ABSOLUTE_PATHS,
+        parser::QUESTION_MARK_MACRO_SEP,
+        parser::ILL_FORMED_ATTRIBUTE_INPUT,
+        DEPRECATED_IN_FUTURE,
+        AMBIGUOUS_ASSOCIATED_ITEMS,
+        NESTED_IMPL_TRAIT,
+        DUPLICATE_MATCHER_BINDING_NAME,
+        MUTABLE_BORROW_RESERVATION_CONFLICT,
+    ]
 }
 
 // this could be a closure, but then implementing derive traits
@@ -443,6 +479,9 @@ pub enum BuiltinLintDiagnostics {
     MacroExpandedMacroExportsAccessedByAbsolutePaths(Span),
     ElidedLifetimesInPaths(usize, Span, bool, Span, String),
     UnknownCrateTypes(Span, String, String),
+    UnusedImports(String, Vec<(Span, String)>),
+    NestedImplTrait { outer_impl_trait_span: Span, inner_impl_trait_span: Span },
+    RedundantImport(Vec<(Span, bool)>, ast::Ident),
 }
 
 impl BuiltinLintDiagnostics {
@@ -456,14 +495,14 @@ impl BuiltinLintDiagnostics {
                     Ok(s) => (format!("dyn {}", s), Applicability::MachineApplicable),
                     Err(_) => ("dyn <type>".to_string(), Applicability::HasPlaceholders)
                 };
-                db.span_suggestion_with_applicability(span, "use `dyn`", sugg, app);
+                db.span_suggestion(span, "use `dyn`", sugg, app);
             }
             BuiltinLintDiagnostics::AbsPathWithModule(span) => {
                 let (sugg, app) = match sess.source_map().span_to_snippet(span) {
                     Ok(ref s) => {
                         // FIXME(Manishearth) ideally the emitting code
                         // can tell us whether or not this is global
-                        let opt_colon = if s.trim_left().starts_with("::") {
+                        let opt_colon = if s.trim_start().starts_with("::") {
                             ""
                         } else {
                             "::"
@@ -473,7 +512,7 @@ impl BuiltinLintDiagnostics {
                     }
                     Err(_) => ("crate::<path>".to_string(), Applicability::HasPlaceholders)
                 };
-                db.span_suggestion_with_applicability(span, "use `crate`", sugg, app);
+                db.span_suggestion(span, "use `crate`", sugg, app);
             }
             BuiltinLintDiagnostics::DuplicatedMacroExports(ident, earlier_span, later_span) => {
                 db.span_label(later_span, format!("`{}` already exported", ident));
@@ -514,7 +553,7 @@ impl BuiltinLintDiagnostics {
                         (insertion_span, anon_lts)
                     }
                 };
-                db.span_suggestion_with_applicability(
+                db.span_suggestion(
                     replace_span,
                     &format!("indicate the anonymous lifetime{}", if n >= 2 { "s" } else { "" }),
                     suggestion,
@@ -522,12 +561,31 @@ impl BuiltinLintDiagnostics {
                 );
             }
             BuiltinLintDiagnostics::UnknownCrateTypes(span, note, sugg) => {
-                db.span_suggestion_with_applicability(
-                    span,
-                    &note,
-                    sugg,
-                    Applicability::MaybeIncorrect
-                );
+                db.span_suggestion(span, &note, sugg, Applicability::MaybeIncorrect);
+            }
+            BuiltinLintDiagnostics::UnusedImports(message, replaces) => {
+                if !replaces.is_empty() {
+                    db.tool_only_multipart_suggestion(
+                        &message,
+                        replaces,
+                        Applicability::MachineApplicable,
+                    );
+                }
+            }
+            BuiltinLintDiagnostics::NestedImplTrait {
+                outer_impl_trait_span, inner_impl_trait_span
+            } => {
+                db.span_label(outer_impl_trait_span, "outer `impl Trait`");
+                db.span_label(inner_impl_trait_span, "nested `impl Trait` here");
+            }
+            BuiltinLintDiagnostics::RedundantImport(spans, ident) => {
+                for (span, is_imported) in spans {
+                    let introduced = if is_imported { "imported" } else { "defined" };
+                    db.span_label(
+                        span,
+                        format!("the item `{}` is already {} here", ident, introduced)
+                    );
+                }
             }
         }
     }

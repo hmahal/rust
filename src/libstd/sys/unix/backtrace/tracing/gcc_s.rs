@@ -1,18 +1,8 @@
-// Copyright 2014-2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-use error::Error;
-use io;
-use libc;
-use sys::backtrace::BacktraceContext;
-use sys_common::backtrace::Frame;
+use crate::error::Error;
+use crate::fmt;
+use crate::io;
+use crate::sys::backtrace::BacktraceContext;
+use crate::sys_common::backtrace::Frame;
 
 use unwind as uw;
 
@@ -30,8 +20,8 @@ impl Error for UnwindError {
     }
 }
 
-impl ::fmt::Display for UnwindError {
-    fn fmt(&self, f: &mut ::fmt::Formatter) -> ::fmt::Result {
+impl fmt::Display for UnwindError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}: {:?}", self.description(), self.0)
     }
 }
@@ -47,7 +37,7 @@ pub fn unwind_backtrace(frames: &mut [Frame])
     };
     let result_unwind = unsafe {
         uw::_Unwind_Backtrace(trace_fn,
-                              &mut cx as *mut Context
+                              &mut cx as *mut Context<'_>
                               as *mut libc::c_void)
     };
     // See libunwind:src/unwind/Backtrace.c for the return values.
@@ -67,7 +57,7 @@ pub fn unwind_backtrace(frames: &mut [Frame])
 
 extern fn trace_fn(ctx: *mut uw::_Unwind_Context,
                    arg: *mut libc::c_void) -> uw::_Unwind_Reason_Code {
-    let cx = unsafe { &mut *(arg as *mut Context) };
+    let cx = unsafe { &mut *(arg as *mut Context<'_>) };
     if cx.idx >= cx.frames.len() {
         return uw::_URC_NORMAL_STOP;
     }

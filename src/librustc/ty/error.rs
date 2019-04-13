@@ -1,15 +1,5 @@
-// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-use hir::def_id::DefId;
-use ty::{self, BoundRegion, Region, Ty, TyCtxt};
+use crate::hir::def_id::DefId;
+use crate::ty::{self, BoundRegion, Region, Ty, TyCtxt};
 use std::borrow::Cow;
 use std::fmt;
 use rustc_target::spec::abi;
@@ -17,9 +7,9 @@ use syntax::ast;
 use errors::{Applicability, DiagnosticBuilder};
 use syntax_pos::Span;
 
-use hir;
+use crate::hir;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ExpectedFound<T> {
     pub expected: T,
     pub found: T,
@@ -39,6 +29,7 @@ pub enum TypeError<'tcx> {
     RegionsDoesNotOutlive(Region<'tcx>, Region<'tcx>),
     RegionsInsufficientlyPolymorphic(BoundRegion, Region<'tcx>),
     RegionsOverlyPolymorphic(BoundRegion, Region<'tcx>),
+    RegionsPlaceholderMismatch,
 
     Sorts(ExpectedFound<Ty<'tcx>>),
     IntMismatch(ExpectedFound<ty::IntVarValue>),
@@ -80,6 +71,13 @@ impl<'tcx> fmt::Display for TypeError<'tcx> {
             }
         }
 
+        let br_string = |br: ty::BoundRegion| {
+            match br {
+                ty::BrNamed(_, name) => format!(" {}", name),
+                _ => String::new(),
+            }
+        };
+
         match *self {
             CyclicTy(_) => write!(f, "cyclic type of infinite size"),
             Mismatch => write!(f, "types differ"),
@@ -114,15 +112,16 @@ impl<'tcx> fmt::Display for TypeError<'tcx> {
             }
             RegionsInsufficientlyPolymorphic(br, _) => {
                 write!(f,
-                       "expected bound lifetime parameter{}{}, found concrete lifetime",
-                       if br.is_named() { " " } else { "" },
-                       br)
+                       "expected bound lifetime parameter{}, found concrete lifetime",
+                       br_string(br))
             }
             RegionsOverlyPolymorphic(br, _) => {
                 write!(f,
-                       "expected concrete lifetime, found bound lifetime parameter{}{}",
-                       if br.is_named() { " " } else { "" },
-                       br)
+                       "expected concrete lifetime, found bound lifetime parameter{}",
+                       br_string(br))
+            }
+            RegionsPlaceholderMismatch => {
+                write!(f, "one type is more general than the other")
             }
             Sorts(values) => ty::tls::with(|tcx| {
                 report_maybe_different(f, &values.expected.sort_string(tcx),
@@ -131,9 +130,9 @@ impl<'tcx> fmt::Display for TypeError<'tcx> {
             Traits(values) => ty::tls::with(|tcx| {
                 report_maybe_different(f,
                                        &format!("trait `{}`",
-                                                tcx.item_path_str(values.expected)),
+                                                tcx.def_path_str(values.expected)),
                                        &format!("trait `{}`",
-                                                tcx.item_path_str(values.found)))
+                                                tcx.def_path_str(values.found)))
             }),
             IntMismatch(ref values) => {
                 write!(f, "expected `{:?}`, found `{:?}`",
@@ -152,8 +151,8 @@ impl<'tcx> fmt::Display for TypeError<'tcx> {
             }
             ProjectionMismatched(ref values) => ty::tls::with(|tcx| {
                 write!(f, "expected {}, found {}",
-                       tcx.item_path_str(values.expected),
-                       tcx.item_path_str(values.found))
+                       tcx.def_path_str(values.expected),
+                       tcx.def_path_str(values.found))
             }),
             ProjectionBoundsLength(ref values) => {
                 write!(f, "expected {} associated type bindings, found {}",
@@ -175,13 +174,11 @@ impl<'a, 'gcx, 'lcx, 'tcx> ty::TyS<'tcx> {
             ty::Uint(_) | ty::Float(_) | ty::Str | ty::Never => self.to_string().into(),
             ty::Tuple(ref tys) if tys.is_empty() => self.to_string().into(),
 
-            ty::Adt(def, _) => format!("{} `{}`", def.descr(), tcx.item_path_str(def.did)).into(),
-            ty::Foreign(def_id) => format!("extern type `{}`", tcx.item_path_str(def_id)).into(),
-            ty::Array(_, n) => {
-                match n.assert_usize(tcx) {
-                    Some(n) => format!("array of {} elements", n).into(),
-                    None => "array".into(),
-                }
+            ty::Adt(def, _) => format!("{} `{}`", def.descr(), tcx.def_path_str(def.did)).into(),
+            ty::Foreign(def_id) => format!("extern type `{}`", tcx.def_path_str(def_id)).into(),
+            ty::Array(_, n) => match n.assert_usize(tcx) {
+                Some(n) => format!("array of {} elements", n).into(),
+                None => "array".into(),
             }
             ty::Slice(_) => "slice".into(),
             ty::RawPtr(_) => "*-ptr".into(),
@@ -190,7 +187,7 @@ impl<'a, 'gcx, 'lcx, 'tcx> ty::TyS<'tcx> {
                 let tymut_string = tymut.to_string();
                 if tymut_string == "_" ||         //unknown type name,
                    tymut_string.len() > 10 ||     //name longer than saying "reference",
-                   region.to_string() != ""       //... or a complex type
+                   region.to_string() != "'_"     //... or a complex type
                 {
                     format!("{}reference", match mutbl {
                         hir::Mutability::MutMutable => "mutable ",
@@ -203,15 +200,19 @@ impl<'a, 'gcx, 'lcx, 'tcx> ty::TyS<'tcx> {
             ty::FnDef(..) => "fn item".into(),
             ty::FnPtr(_) => "fn pointer".into(),
             ty::Dynamic(ref inner, ..) => {
-                format!("trait {}", tcx.item_path_str(inner.principal().def_id())).into()
+                if let Some(principal) = inner.principal() {
+                    format!("trait {}", tcx.def_path_str(principal.def_id())).into()
+                } else {
+                    "trait".into()
+                }
             }
             ty::Closure(..) => "closure".into(),
             ty::Generator(..) => "generator".into(),
             ty::GeneratorWitness(..) => "generator witness".into(),
             ty::Tuple(..) => "tuple".into(),
             ty::Infer(ty::TyVar(_)) => "inferred type".into(),
-            ty::Infer(ty::IntVar(_)) => "integral variable".into(),
-            ty::Infer(ty::FloatVar(_)) => "floating-point variable".into(),
+            ty::Infer(ty::IntVar(_)) => "integer".into(),
+            ty::Infer(ty::FloatVar(_)) => "floating-point number".into(),
             ty::Placeholder(..) => "placeholder type".into(),
             ty::Bound(..) => "bound type".into(),
             ty::Infer(ty::FreshTy(_)) => "fresh type".into(),
@@ -252,7 +253,7 @@ impl<'a, 'gcx, 'tcx> TyCtxt<'a, 'gcx, 'tcx> {
                 {
                     if let Ok(snippet) = self.sess.source_map().span_to_snippet(sp) {
                         if snippet.chars().all(|c| c.is_digit(10) || c == '-' || c == '_') {
-                            db.span_suggestion_with_applicability(
+                            db.span_suggestion(
                                 sp,
                                 "use a float literal",
                                 format!("{}.0", snippet),

@@ -1,38 +1,28 @@
-// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 #![allow(non_camel_case_types)]
 
-use rustc_data_structures::sync::Lock;
+use rustc_data_structures::{fx::FxHashMap, sync::Lock};
 
 use std::cell::{RefCell, Cell};
-use std::collections::HashMap;
 use std::fmt::Debug;
-use std::hash::{Hash, BuildHasher};
+use std::hash::Hash;
 use std::panic;
 use std::env;
 use std::time::{Duration, Instant};
 
 use std::sync::mpsc::{Sender};
 use syntax_pos::{SpanData};
-use ty::TyCtxt;
-use dep_graph::{DepNode};
+use rustc_macros::HashStable;
+use crate::ty::TyCtxt;
+use crate::dep_graph::{DepNode};
 use lazy_static;
-use session::Session;
+use crate::session::Session;
 
 // The name of the associated type for `Fn` return types
 pub const FN_OUTPUT_NAME: &str = "Output";
 
 // Useful type to use with `Result<>` indicate that an error has already
 // been reported to the user, so no need to continue checking.
-#[derive(Clone, Copy, Debug, RustcEncodable, RustcDecodable)]
+#[derive(Clone, Copy, Debug, RustcEncodable, RustcDecodable, HashStable)]
 pub struct ErrorReported;
 
 thread_local!(static TIME_DEPTH: Cell<usize> = Cell::new(0));
@@ -73,11 +63,11 @@ pub fn install_panic_hook() {
 /// Parameters to the `Dump` variant of type `ProfileQueriesMsg`.
 #[derive(Clone,Debug)]
 pub struct ProfQDumpParams {
-    /// A base path for the files we will dump
+    /// A base path for the files we will dump.
     pub path:String,
-    /// To ensure that the compiler waits for us to finish our dumps
+    /// To ensure that the compiler waits for us to finish our dumps.
     pub ack:Sender<()>,
-    /// toggle dumping a log file with every `ProfileQueriesMsg`
+    /// Toggle dumping a log file with every `ProfileQueriesMsg`.
     pub dump_profq_msg_log:bool,
 }
 
@@ -141,7 +131,7 @@ pub fn time_depth() -> usize {
     TIME_DEPTH.with(|slot| slot.get())
 }
 
-/// Set the current depth of `time()` calls. The idea is to call
+/// Sets the current depth of `time()` calls. The idea is to call
 /// `set_time_depth()` with the result from `time_depth()` in the
 /// parent thread.
 pub fn set_time_depth(depth: usize) {
@@ -350,8 +340,8 @@ pub trait MemoizationMap {
         where OP: FnOnce() -> Self::Value;
 }
 
-impl<K, V, S> MemoizationMap for RefCell<HashMap<K,V,S>>
-    where K: Hash+Eq+Clone, V: Clone, S: BuildHasher
+impl<K, V> MemoizationMap for RefCell<FxHashMap<K,V>>
+    where K: Hash+Eq+Clone, V: Clone
 {
     type Key = K;
     type Value = V;

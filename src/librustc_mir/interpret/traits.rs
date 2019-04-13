@@ -1,20 +1,10 @@
-// Copyright 2018 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 use rustc::ty::{self, Ty};
 use rustc::ty::layout::{Size, Align, LayoutOf};
 use rustc::mir::interpret::{Scalar, Pointer, EvalResult, PointerArithmetic};
 
-use super::{EvalContext, Machine, MemoryKind};
+use super::{InterpretCx, InterpError, Machine, MemoryKind};
 
-impl<'a, 'mir, 'tcx, M: Machine<'a, 'mir, 'tcx>> EvalContext<'a, 'mir, 'tcx, M> {
+impl<'a, 'mir, 'tcx, M: Machine<'a, 'mir, 'tcx>> InterpretCx<'a, 'mir, 'tcx, M> {
     /// Creates a dynamic vtable for the given type and vtable origin. This is used only for
     /// objects.
     ///
@@ -24,20 +14,28 @@ impl<'a, 'mir, 'tcx, M: Machine<'a, 'mir, 'tcx>> EvalContext<'a, 'mir, 'tcx, M> 
     pub fn get_vtable(
         &mut self,
         ty: Ty<'tcx>,
-        poly_trait_ref: ty::PolyExistentialTraitRef<'tcx>,
+        poly_trait_ref: Option<ty::PolyExistentialTraitRef<'tcx>>,
     ) -> EvalResult<'tcx, Pointer<M::PointerTag>> {
         trace!("get_vtable(trait_ref={:?})", poly_trait_ref);
 
         let (ty, poly_trait_ref) = self.tcx.erase_regions(&(ty, poly_trait_ref));
 
         if let Some(&vtable) = self.vtables.get(&(ty, poly_trait_ref)) {
+            // This means we guarantee that there are no duplicate vtables, we will
+            // always use the same vtable for the same (Type, Trait) combination.
+            // That's not what happens in rustc, but emulating per-crate deduplication
+            // does not sound like it actually makes anything any better.
             return Ok(Pointer::from(vtable).with_default_tag());
         }
 
-        let trait_ref = poly_trait_ref.with_self_ty(*self.tcx, ty);
-        let trait_ref = self.tcx.erase_regions(&trait_ref);
+        let methods = if let Some(poly_trait_ref) = poly_trait_ref {
+            let trait_ref = poly_trait_ref.with_self_ty(*self.tcx, ty);
+            let trait_ref = self.tcx.erase_regions(&trait_ref);
 
-        let methods = self.tcx.vtable_methods(trait_ref);
+            self.tcx.vtable_methods(trait_ref)
+        } else {
+            &[]
+        };
 
         let layout = self.layout_of(ty)?;
         assert!(!layout.is_unsized(), "can't create a vtable for an unsized type");
@@ -54,10 +52,10 @@ impl<'a, 'mir, 'tcx, M: Machine<'a, 'mir, 'tcx>> EvalContext<'a, 'mir, 'tcx, M> 
             ptr_size * (3 + methods.len() as u64),
             ptr_align,
             MemoryKind::Vtable,
-        )?.with_default_tag();
+        ).with_default_tag();
         let tcx = &*self.tcx;
 
-        let drop = ::monomorphize::resolve_drop_in_place(*tcx, ty);
+        let drop = crate::monomorphize::resolve_drop_in_place(*tcx, ty);
         let drop = self.memory.create_fn_alloc(drop).with_default_tag();
         // no need to do any alignment checks on the memory accesses below, because we know the
         // allocation is correctly aligned as we created it above. Also we're only offsetting by
@@ -77,7 +75,14 @@ impl<'a, 'mir, 'tcx, M: Machine<'a, 'mir, 'tcx>> EvalContext<'a, 'mir, 'tcx, M> 
 
         for (i, method) in methods.iter().enumerate() {
             if let Some((def_id, substs)) = *method {
-                let instance = self.resolve(def_id, substs)?;
+                // resolve for vtable: insert shims where needed
+                let substs = self.subst_and_normalize_erasing_regions(substs)?;
+                let instance = ty::Instance::resolve_for_vtable(
+                    *self.tcx,
+                    self.param_env,
+                    def_id,
+                    substs,
+                ).ok_or_else(|| InterpError::TooGeneric)?;
                 let fn_ptr = self.memory.create_fn_alloc(instance).with_default_tag();
                 let method_ptr = vtable.offset(ptr_size * (3 + i as u64), self)?;
                 self.memory
@@ -92,7 +97,7 @@ impl<'a, 'mir, 'tcx, M: Machine<'a, 'mir, 'tcx>> EvalContext<'a, 'mir, 'tcx, M> 
         Ok(vtable)
     }
 
-    /// Return the drop fn instance as well as the actual dynamic type
+    /// Returns the drop fn instance as well as the actual dynamic type
     pub fn read_drop_type_from_vtable(
         &self,
         vtable: Pointer<M::PointerTag>,

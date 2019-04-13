@@ -1,13 +1,3 @@
-// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Error handling with the `Result` type.
 //!
 //! [`Result<T, E>`][`Result`] is the type used for returning and propagating
@@ -379,7 +369,7 @@ impl<T, E> Result<T, E> {
     // Adapter for working with references
     /////////////////////////////////////////////////////////////////////////
 
-    /// Converts from `Result<T, E>` to `Result<&T, &E>`.
+    /// Converts from `&Result<T, E>` to `Result<&T, &E>`.
     ///
     /// Produces a new `Result`, containing a reference
     /// into the original, leaving the original in place.
@@ -404,7 +394,7 @@ impl<T, E> Result<T, E> {
         }
     }
 
-    /// Converts from `Result<T, E>` to `Result<&mut T, &mut E>`.
+    /// Converts from `&mut Result<T, E>` to `Result<&mut T, &mut E>`.
     ///
     /// # Examples
     ///
@@ -906,7 +896,7 @@ impl<T: Default, E> Result<T, E> {
     ///
     /// # Examples
     ///
-    /// Convert a string to an integer, turning poorly-formed strings
+    /// Converts a string to an integer, turning poorly-formed strings
     /// into 0 (the default value for integers). [`parse`] converts
     /// a string to any other type that implements [`FromStr`], returning an
     /// [`Err`] on error.
@@ -982,8 +972,6 @@ impl<T, E> Result<Option<T>, E> {
     /// # Examples
     ///
     /// ```
-    /// #![feature(transpose_result)]
-    ///
     /// #[derive(Debug, Eq, PartialEq)]
     /// struct SomeErr;
     ///
@@ -992,7 +980,7 @@ impl<T, E> Result<Option<T>, E> {
     /// assert_eq!(x.transpose(), y);
     /// ```
     #[inline]
-    #[unstable(feature = "transpose_result", issue = "47338")]
+    #[stable(feature = "transpose_result", since = "1.33.0")]
     pub fn transpose(self) -> Option<Result<T, E>> {
         match self {
             Ok(Some(x)) => Some(Ok(x)),
@@ -1212,8 +1200,36 @@ impl<A, E, V: FromIterator<A>> FromIterator<Result<A, E>> for Result<V, E> {
     /// let res: Result<Vec<u32>, &'static str> = v.iter().map(|x: &u32|
     ///     x.checked_add(1).ok_or("Overflow!")
     /// ).collect();
-    /// assert!(res == Ok(vec![2, 3]));
+    /// assert_eq!(res, Ok(vec![2, 3]));
     /// ```
+    ///
+    /// Here is another example that tries to subtract one from another list
+    /// of integers, this time checking for underflow:
+    ///
+    /// ```
+    /// let v = vec![1, 2, 0];
+    /// let res: Result<Vec<u32>, &'static str> = v.iter().map(|x: &u32|
+    ///     x.checked_sub(1).ok_or("Underflow!")
+    /// ).collect();
+    /// assert_eq!(res, Err("Underflow!"));
+    /// ```
+    ///
+    /// Here is a variation on the previous example, showing that no
+    /// further elements are taken from `iter` after the first `Err`.
+    ///
+    /// ```
+    /// let v = vec![3, 2, 1, 10];
+    /// let mut shared = 0;
+    /// let res: Result<Vec<u32>, &'static str> = v.iter().map(|x: &u32| {
+    ///     shared += x;
+    ///     x.checked_sub(2).ok_or("Underflow!")
+    /// }).collect();
+    /// assert_eq!(res, Err("Underflow!"));
+    /// assert_eq!(shared, 6);
+    /// ```
+    ///
+    /// Since the third element caused an underflow, no further elements were taken,
+    /// so the final value of `shared` is 6 (= `3 + 2 + 1`), not 16.
     #[inline]
     fn from_iter<I: IntoIterator<Item=Result<A, E>>>(iter: I) -> Result<V, E> {
         // FIXME(#11084): This could be replaced with Iterator::scan when this

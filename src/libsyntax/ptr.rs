@@ -1,14 +1,4 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-//! The AST pointer
+//! The AST pointer.
 //!
 //! Provides `P<T>`, a frozen owned smart pointer, as a replacement for `@T` in
 //! the AST.
@@ -39,7 +29,7 @@
 use std::fmt::{self, Display, Debug};
 use std::iter::FromIterator;
 use std::ops::{Deref, DerefMut};
-use std::{mem, ptr, slice, vec};
+use std::{slice, vec};
 
 use serialize::{Encodable, Decodable, Encoder, Decoder};
 
@@ -76,44 +66,18 @@ impl<T: 'static> P<T> {
     pub fn map<F>(mut self, f: F) -> P<T> where
         F: FnOnce(T) -> T,
     {
-        let p: *mut T = &mut *self.ptr;
+        let x = f(*self.ptr);
+        *self.ptr = x;
 
-        // Leak self in case of panic.
-        // FIXME(eddyb) Use some sort of "free guard" that
-        // only deallocates, without dropping the pointee,
-        // in case the call the `f` below ends in a panic.
-        mem::forget(self);
-
-        unsafe {
-            ptr::write(p, f(ptr::read(p)));
-
-            // Recreate self from the raw pointer.
-            P { ptr: Box::from_raw(p) }
-        }
+        self
     }
 
     /// Optionally produce a new `P<T>` from `self` without reallocating.
     pub fn filter_map<F>(mut self, f: F) -> Option<P<T>> where
         F: FnOnce(T) -> Option<T>,
     {
-        let p: *mut T = &mut *self.ptr;
-
-        // Leak self in case of panic.
-        // FIXME(eddyb) Use some sort of "free guard" that
-        // only deallocates, without dropping the pointee,
-        // in case the call the `f` below ends in a panic.
-        mem::forget(self);
-
-        unsafe {
-            if let Some(v) = f(ptr::read(p)) {
-                ptr::write(p, v);
-
-                // Recreate self from the raw pointer.
-                Some(P { ptr: Box::from_raw(p) })
-            } else {
-                None
-            }
-        }
+        *self.ptr = f(*self.ptr)?;
+        Some(self)
     }
 }
 
@@ -138,19 +102,19 @@ impl<T: 'static + Clone> Clone for P<T> {
 }
 
 impl<T: ?Sized + Debug> Debug for P<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         Debug::fmt(&self.ptr, f)
     }
 }
 
 impl<T: Display> Display for P<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         Display::fmt(&**self, f)
     }
 }
 
 impl<T> fmt::Pointer for P<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Pointer::fmt(&self.ptr, f)
     }
 }

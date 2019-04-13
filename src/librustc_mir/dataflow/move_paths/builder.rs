@@ -1,13 +1,3 @@
-// Copyright 2017 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 use rustc::ty::{self, TyCtxt};
 use rustc::mir::*;
 use rustc::mir::tcx::RvalueInitializationState;
@@ -43,13 +33,13 @@ impl<'a, 'gcx, 'tcx> MoveDataBuilder<'a, 'gcx, 'tcx> {
                 moves: IndexVec::new(),
                 loc_map: LocationMap::new(mir),
                 rev_lookup: MovePathLookup {
-                    locals: mir.local_decls.indices().map(Place::Local).map(|v| {
+                    locals: mir.local_decls.indices().map(PlaceBase::Local).map(|v| {
                         Self::new_move_path(
                             &mut move_paths,
                             &mut path_map,
                             &mut init_path_map,
                             None,
-                            v,
+                            Place::Base(v),
                         )
                     }).collect(),
                     projections: Default::default(),
@@ -106,9 +96,8 @@ impl<'b, 'a, 'gcx, 'tcx> Gatherer<'b, 'a, 'gcx, 'tcx> {
     {
         debug!("lookup({:?})", place);
         match *place {
-            Place::Local(local) => Ok(self.builder.data.rev_lookup.locals[local]),
-            Place::Promoted(..) |
-            Place::Static(..) => {
+            Place::Base(PlaceBase::Local(local)) => Ok(self.builder.data.rev_lookup.locals[local]),
+            Place::Base(PlaceBase::Static(..)) => {
                 Err(MoveError::cannot_move_out_of(self.loc, Static))
             }
             Place::Projection(ref proj) => {
@@ -131,7 +120,7 @@ impl<'b, 'a, 'gcx, 'tcx> Gatherer<'b, 'a, 'gcx, 'tcx> {
         let base = self.move_path_for(&proj.base)?;
         let mir = self.builder.mir;
         let tcx = self.builder.tcx;
-        let place_ty = proj.base.ty(mir, tcx).to_ty(tcx);
+        let place_ty = proj.base.ty(mir, tcx).ty;
         match place_ty.sty {
             ty::Ref(..) | ty::RawPtr(..) =>
                 return Err(MoveError::cannot_move_out_of(
@@ -283,26 +272,25 @@ impl<'b, 'a, 'gcx, 'tcx> Gatherer<'b, 'a, 'gcx, 'tcx> {
             StatementKind::FakeRead(_, ref place) => {
                 self.create_move_path(place);
             }
-            StatementKind::InlineAsm { ref outputs, ref inputs, ref asm } => {
-                for (output, kind) in outputs.iter().zip(&asm.outputs) {
+            StatementKind::InlineAsm(ref asm) => {
+                for (output, kind) in asm.outputs.iter().zip(&asm.asm.outputs) {
                     if !kind.is_indirect {
                         self.gather_init(output, InitKind::Deep);
                     }
                 }
-                for (_, input) in inputs.iter() {
+                for (_, input) in asm.inputs.iter() {
                     self.gather_operand(input);
                 }
             }
             StatementKind::StorageLive(_) => {}
             StatementKind::StorageDead(local) => {
-                self.gather_move(&Place::Local(local));
+                self.gather_move(&Place::Base(PlaceBase::Local(local)));
             }
             StatementKind::SetDiscriminant{ .. } => {
                 span_bug!(stmt.source_info.span,
                           "SetDiscriminant should not exist during borrowck");
             }
             StatementKind::Retag { .. } |
-            StatementKind::EscapeToRaw { .. } |
             StatementKind::AscribeUserType(..) |
             StatementKind::Nop => {}
         }
@@ -356,7 +344,7 @@ impl<'b, 'a, 'gcx, 'tcx> Gatherer<'b, 'a, 'gcx, 'tcx> {
             TerminatorKind::Unreachable => { }
 
             TerminatorKind::Return => {
-                self.gather_move(&Place::Local(RETURN_PLACE));
+                self.gather_move(&Place::RETURN_PLACE);
             }
 
             TerminatorKind::Assert { ref cond, .. } => {
@@ -436,8 +424,8 @@ impl<'b, 'a, 'gcx, 'tcx> Gatherer<'b, 'a, 'gcx, 'tcx> {
             Place::Projection(box Projection {
                 base,
                 elem: ProjectionElem::Field(_, _),
-            }) if match base.ty(self.builder.mir, self.builder.tcx).to_ty(self.builder.tcx).sty {
-                    ty::TyKind::Adt(def, _) if def.is_union() => true,
+            }) if match base.ty(self.builder.mir, self.builder.tcx).ty.sty {
+                    ty::Adt(def, _) if def.is_union() => true,
                     _ => false,
             } => base,
             // Otherwise, lookup the place.

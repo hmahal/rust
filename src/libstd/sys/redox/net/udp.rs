@@ -1,23 +1,13 @@
-// Copyright 2016 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-use cell::UnsafeCell;
-use cmp;
-use io::{self, Error, ErrorKind, Result};
-use mem;
-use net::{SocketAddr, Ipv4Addr, Ipv6Addr};
-use path::Path;
-use sys::fs::{File, OpenOptions};
-use sys::syscall::TimeSpec;
-use sys_common::{AsInner, FromInner, IntoInner};
-use time::Duration;
+use crate::cell::UnsafeCell;
+use crate::cmp;
+use crate::io::{self, Error, ErrorKind, Result};
+use crate::mem;
+use crate::net::{SocketAddr, Ipv4Addr, Ipv6Addr};
+use crate::path::Path;
+use crate::sys::fs::{File, OpenOptions};
+use crate::sys::syscall::TimeSpec;
+use crate::sys_common::{AsInner, FromInner, IntoInner};
+use crate::time::Duration;
 
 use super::{path_to_peer_addr, path_to_local_addr};
 
@@ -80,6 +70,11 @@ impl UdpSocket {
 
     pub fn take_error(&self) -> Result<Option<Error>> {
         Ok(None)
+    }
+
+    pub fn peer_addr(&self) -> Result<SocketAddr> {
+        let path = self.0.path()?;
+        Ok(path_to_peer_addr(path.to_str().unwrap_or("")))
     }
 
     pub fn socket_addr(&self) -> Result<SocketAddr> {

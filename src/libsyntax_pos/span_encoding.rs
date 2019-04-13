@@ -1,22 +1,12 @@
-// Copyright 2017 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 // Spans are encoded using 1-bit tag and 2 different encoding formats (one for each tag value).
 // One format is used for keeping span data inline,
 // another contains index into an out-of-line span interner.
 // The encoding format for inline spans were obtained by optimizing over crates in rustc/libstd.
 // See https://internals.rust-lang.org/t/rfc-compiler-refactoring-spans/1357/28
 
-use GLOBALS;
-use {BytePos, SpanData};
-use hygiene::SyntaxContext;
+use crate::GLOBALS;
+use crate::{BytePos, SpanData};
+use crate::hygiene::SyntaxContext;
 
 use rustc_data_structures::fx::FxHashMap;
 use std::hash::{Hash, Hasher};
@@ -84,12 +74,12 @@ const CTXT_INDEX: usize = 2;
 
 // Tag = 0, inline format.
 // -------------------------------------------------------------
-// | base 31:8  | len 7:1  | ctxt (currently 0 bits) | tag 0:0 |
+// | base 31:7  | len 6:1  | ctxt (currently 0 bits) | tag 0:0 |
 // -------------------------------------------------------------
 // Since there are zero bits for ctxt, only SpanData with a 0 SyntaxContext
 // can be inline.
-const INLINE_SIZES: [u32; 3] = [24, 7, 0];
-const INLINE_OFFSETS: [u32; 3] = [8, 1, 1];
+const INLINE_SIZES: [u32; 3] = [25, 6, 0];
+const INLINE_OFFSETS: [u32; 3] = [7, 1, 1];
 
 // Tag = 1, interned format.
 // ------------------------

@@ -1,35 +1,26 @@
-// Copyright 2018 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 use std::{fmt, env};
 
-use hir::map::definitions::DefPathData;
-use mir;
-use ty::{self, Ty, layout};
-use ty::layout::{Size, Align, LayoutError};
+use crate::hir;
+use crate::hir::map::definitions::DefPathData;
+use crate::mir;
+use crate::ty::{self, Ty, layout};
+use crate::ty::layout::{Size, Align, LayoutError};
 use rustc_target::spec::abi::Abi;
+use rustc_macros::HashStable;
 
 use super::{RawConst, Pointer, InboundsCheck, ScalarMaybeUndef};
 
 use backtrace::Backtrace;
 
-use ty::query::TyCtxtAt;
+use crate::ty::query::TyCtxtAt;
 use errors::DiagnosticBuilder;
 
 use syntax_pos::{Pos, Span};
-use syntax::ast;
 use syntax::symbol::Symbol;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, HashStable)]
 pub enum ErrorHandled {
-    /// Already reported a lint or an error for this evaluation
+    /// Already reported a lint or an error for this evaluation.
     Reported,
     /// Don't emit an error, the evaluation failed because the MIR was generic
     /// and the substs didn't fully monomorphize it.
@@ -47,20 +38,20 @@ impl ErrorHandled {
 }
 
 pub type ConstEvalRawResult<'tcx> = Result<RawConst<'tcx>, ErrorHandled>;
-pub type ConstEvalResult<'tcx> = Result<&'tcx ty::Const<'tcx>, ErrorHandled>;
+pub type ConstEvalResult<'tcx> = Result<ty::Const<'tcx>, ErrorHandled>;
 
 #[derive(Clone, Debug, RustcEncodable, RustcDecodable)]
 pub struct ConstEvalErr<'tcx> {
     pub span: Span,
-    pub error: ::mir::interpret::EvalErrorKind<'tcx, u64>,
+    pub error: crate::mir::interpret::InterpError<'tcx, u64>,
     pub stacktrace: Vec<FrameInfo<'tcx>>,
 }
 
-#[derive(Clone, Debug, RustcEncodable, RustcDecodable)]
+#[derive(Clone, Debug, RustcEncodable, RustcDecodable, HashStable)]
 pub struct FrameInfo<'tcx> {
     pub call_site: Span, // this span is in the caller!
     pub instance: ty::Instance<'tcx>,
-    pub lint_root: Option<ast::NodeId>,
+    pub lint_root: Option<hir::HirId>,
 }
 
 impl<'tcx> fmt::Display for FrameInfo<'tcx> {
@@ -108,7 +99,8 @@ impl<'a, 'gcx, 'tcx> ConstEvalErr<'tcx> {
     pub fn report_as_lint(&self,
         tcx: TyCtxtAt<'a, 'gcx, 'tcx>,
         message: &str,
-        lint_root: ast::NodeId,
+        lint_root: hir::HirId,
+        span: Option<Span>,
     ) -> ErrorHandled {
         let lint = self.struct_generic(
             tcx,
@@ -117,6 +109,18 @@ impl<'a, 'gcx, 'tcx> ConstEvalErr<'tcx> {
         );
         match lint {
             Ok(mut lint) => {
+                if let Some(span) = span {
+                    let primary_spans = lint.span.primary_spans().to_vec();
+                    // point at the actual error as the primary span
+                    lint.replace_span_with(span);
+                    // point to the `const` statement as a secondary span
+                    // they don't have any label
+                    for sp in primary_spans {
+                        if sp != span {
+                            lint.span_label(sp, "");
+                        }
+                    }
+                }
                 lint.emit();
                 ErrorHandled::Reported
             },
@@ -128,26 +132,26 @@ impl<'a, 'gcx, 'tcx> ConstEvalErr<'tcx> {
         &self,
         tcx: TyCtxtAt<'a, 'gcx, 'tcx>,
         message: &str,
-        lint_root: Option<ast::NodeId>,
+        lint_root: Option<hir::HirId>,
     ) -> Result<DiagnosticBuilder<'tcx>, ErrorHandled> {
         match self.error {
-            EvalErrorKind::Layout(LayoutError::Unknown(_)) |
-            EvalErrorKind::TooGeneric => return Err(ErrorHandled::TooGeneric),
-            EvalErrorKind::Layout(LayoutError::SizeOverflow(_)) |
-            EvalErrorKind::TypeckError => return Err(ErrorHandled::Reported),
+            InterpError::Layout(LayoutError::Unknown(_)) |
+            InterpError::TooGeneric => return Err(ErrorHandled::TooGeneric),
+            InterpError::Layout(LayoutError::SizeOverflow(_)) |
+            InterpError::TypeckError => return Err(ErrorHandled::Reported),
             _ => {},
         }
         trace!("reporting const eval failure at {:?}", self.span);
         let mut err = if let Some(lint_root) = lint_root {
-            let node_id = self.stacktrace
+            let hir_id = self.stacktrace
                 .iter()
                 .rev()
                 .filter_map(|frame| frame.lint_root)
                 .next()
                 .unwrap_or(lint_root);
-            tcx.struct_span_lint_node(
-                ::rustc::lint::builtin::CONST_ERR,
-                node_id,
+            tcx.struct_span_lint_hir(
+                crate::rustc::lint::builtin::CONST_ERR,
+                hir_id,
                 tcx.span,
                 message,
             )
@@ -176,61 +180,25 @@ pub fn struct_error<'a, 'gcx, 'tcx>(
 
 #[derive(Debug, Clone)]
 pub struct EvalError<'tcx> {
-    pub kind: EvalErrorKind<'tcx, u64>,
+    pub kind: InterpError<'tcx, u64>,
     pub backtrace: Option<Box<Backtrace>>,
 }
 
 impl<'tcx> EvalError<'tcx> {
     pub fn print_backtrace(&mut self) {
         if let Some(ref mut backtrace) = self.backtrace {
-            eprintln!("{}", print_backtrace(&mut *backtrace));
+            print_backtrace(&mut *backtrace);
         }
     }
 }
 
-fn print_backtrace(backtrace: &mut Backtrace) -> String {
-    use std::fmt::Write;
-
+fn print_backtrace(backtrace: &mut Backtrace) {
     backtrace.resolve();
-
-    let mut trace_text = "\n\nAn error occurred in miri:\n".to_string();
-    write!(trace_text, "backtrace frames: {}\n", backtrace.frames().len()).unwrap();
-    'frames: for (i, frame) in backtrace.frames().iter().enumerate() {
-        if frame.symbols().is_empty() {
-            write!(trace_text, "  {}: no symbols\n", i).unwrap();
-        }
-        let mut first = true;
-        for symbol in frame.symbols() {
-            if first {
-                write!(trace_text, "  {}: ", i).unwrap();
-                first = false;
-            } else {
-                let len = i.to_string().len();
-                write!(trace_text, "  {}  ", " ".repeat(len)).unwrap();
-            }
-            if let Some(name) = symbol.name() {
-                write!(trace_text, "{}\n", name).unwrap();
-            } else {
-                write!(trace_text, "<unknown>\n").unwrap();
-            }
-            write!(trace_text, "           at ").unwrap();
-            if let Some(file_path) = symbol.filename() {
-                write!(trace_text, "{}", file_path.display()).unwrap();
-            } else {
-                write!(trace_text, "<unknown_file>").unwrap();
-            }
-            if let Some(line) = symbol.lineno() {
-                write!(trace_text, ":{}\n", line).unwrap();
-            } else {
-                write!(trace_text, "\n").unwrap();
-            }
-        }
-    }
-    trace_text
+    eprintln!("\n\nAn error occurred in miri:\n{:?}", backtrace);
 }
 
-impl<'tcx> From<EvalErrorKind<'tcx, u64>> for EvalError<'tcx> {
-    fn from(kind: EvalErrorKind<'tcx, u64>) -> Self {
+impl<'tcx> From<InterpError<'tcx, u64>> for EvalError<'tcx> {
+    fn from(kind: InterpError<'tcx, u64>) -> Self {
         let backtrace = match env::var("RUST_CTFE_BACKTRACE") {
             // matching RUST_BACKTRACE, we treat "0" the same as "not present".
             Ok(ref val) if val != "0" => {
@@ -238,7 +206,7 @@ impl<'tcx> From<EvalErrorKind<'tcx, u64>> for EvalError<'tcx> {
 
                 if val == "immediate" {
                     // Print it now
-                    eprintln!("{}", print_backtrace(&mut backtrace));
+                    print_backtrace(&mut backtrace);
                     None
                 } else {
                     Some(Box::new(backtrace))
@@ -253,12 +221,12 @@ impl<'tcx> From<EvalErrorKind<'tcx, u64>> for EvalError<'tcx> {
     }
 }
 
-pub type AssertMessage<'tcx> = EvalErrorKind<'tcx, mir::Operand<'tcx>>;
+pub type AssertMessage<'tcx> = InterpError<'tcx, mir::Operand<'tcx>>;
 
-#[derive(Clone, RustcEncodable, RustcDecodable)]
-pub enum EvalErrorKind<'tcx, O> {
+#[derive(Clone, RustcEncodable, RustcDecodable, HashStable)]
+pub enum InterpError<'tcx, O> {
     /// This variant is used by machines to signal their own errors that do not
-    /// match an existing variant
+    /// match an existing variant.
     MachineError(String),
 
     FunctionAbiMismatch(Abi, Abi),
@@ -344,9 +312,9 @@ pub enum EvalErrorKind<'tcx, O> {
 
 pub type EvalResult<'tcx, T = ()> = Result<T, EvalError<'tcx>>;
 
-impl<'tcx, O> EvalErrorKind<'tcx, O> {
+impl<'tcx, O> InterpError<'tcx, O> {
     pub fn description(&self) -> &str {
-        use self::EvalErrorKind::*;
+        use self::InterpError::*;
         match *self {
             MachineError(ref inner) => inner,
             FunctionAbiMismatch(..) | FunctionArgMismatch(..) | FunctionRetMismatch(..)
@@ -482,15 +450,15 @@ impl<'tcx> fmt::Display for EvalError<'tcx> {
     }
 }
 
-impl<'tcx> fmt::Display for EvalErrorKind<'tcx, u64> {
+impl<'tcx> fmt::Display for InterpError<'tcx, u64> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self)
     }
 }
 
-impl<'tcx, O: fmt::Debug> fmt::Debug for EvalErrorKind<'tcx, O> {
+impl<'tcx, O: fmt::Debug> fmt::Debug for InterpError<'tcx, O> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use self::EvalErrorKind::*;
+        use self::InterpError::*;
         match *self {
             PointerOutOfBounds { ptr, check, allocation_size } => {
                 write!(f, "Pointer must be in-bounds{} at offset {}, but is outside bounds of \

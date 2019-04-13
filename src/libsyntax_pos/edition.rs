@@ -1,13 +1,3 @@
-// Copyright 2018 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 use std::fmt;
 use std::str::FromStr;
 
@@ -37,7 +27,7 @@ pub const EDITION_NAME_LIST: &str = "2015|2018";
 pub const DEFAULT_EDITION: Edition = Edition::Edition2015;
 
 impl fmt::Display for Edition {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s = match *self {
             Edition::Edition2015 => "2015",
             Edition::Edition2018 => "2018",

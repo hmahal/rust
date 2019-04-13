@@ -1,36 +1,15 @@
-// Copyright 2018 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
 #![allow(non_camel_case_types, non_snake_case)]
 
-use rustc::ty::{self, Ty, TyCtxt};
-use syntax_pos::{DUMMY_SP, Span};
+use rustc::ty::{Ty, TyCtxt};
+use syntax_pos::Span;
 
 use rustc::hir::def_id::DefId;
 use rustc::middle::lang_items::LangItem;
-use base;
-use traits::*;
+use crate::base;
+use crate::traits::*;
 
 use rustc::hir;
-use traits::BuilderMethods;
-
-pub fn type_needs_drop<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>, ty: Ty<'tcx>) -> bool {
-    ty.needs_drop(tcx, ty::ParamEnv::reveal_all())
-}
-
-pub fn type_is_sized<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>, ty: Ty<'tcx>) -> bool {
-    ty.is_sized(tcx.at(DUMMY_SP), ty::ParamEnv::reveal_all())
-}
-
-pub fn type_is_freeze<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>, ty: Ty<'tcx>) -> bool {
-    ty.is_freeze(tcx, ty::ParamEnv::reveal_all(), DUMMY_SP)
-}
+use crate::traits::BuilderMethods;
 
 pub enum IntPredicate {
     IntEQ,
@@ -132,7 +111,7 @@ pub enum TypeKind {
 mod temp_stable_hash_impls {
     use rustc_data_structures::stable_hasher::{StableHasherResult, StableHasher,
                                                HashStable};
-    use ModuleCodegen;
+    use crate::ModuleCodegen;
 
     impl<HCX, M> HashStable<HCX> for ModuleCodegen<M> {
         fn hash_stable<W: StableHasherResult>(&self,
@@ -143,7 +122,7 @@ mod temp_stable_hash_impls {
     }
 }
 
-pub fn langcall(tcx: TyCtxt,
+pub fn langcall(tcx: TyCtxt<'_, '_, '_>,
                 span: Option<Span>,
                 msg: &str,
                 li: LangItem)

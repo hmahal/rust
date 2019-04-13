@@ -1,15 +1,5 @@
 #!/bin/sh
 
-# Copyright 2017 The Rust Project Developers. See the COPYRIGHT
-# file at the top-level directory of this distribution and at
-# http://rust-lang.org/COPYRIGHT.
-#
-# Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-# http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-# <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-# option. This file may not be copied, modified, or distributed
-# except according to those terms.
-
 set -eu
 
 X_PY="$1"
@@ -33,6 +23,8 @@ python2.7 "$X_PY" test --no-fail-fast \
     src/doc/nomicon \
     src/doc/reference \
     src/doc/rust-by-example \
+    src/doc/embedded-book \
+    src/doc/edition-guide \
     src/tools/clippy \
     src/tools/rls \
     src/tools/rustfmt \
@@ -82,11 +74,13 @@ status_check() {
     check_dispatch $1 beta nomicon src/doc/nomicon
     check_dispatch $1 beta reference src/doc/reference
     check_dispatch $1 beta rust-by-example src/doc/rust-by-example
+    check_dispatch $1 beta edition-guide src/doc/edition-guide
     check_dispatch $1 beta rls src/tools/rls
     check_dispatch $1 beta rustfmt src/tools/rustfmt
     check_dispatch $1 beta clippy-driver src/tools/clippy
     # these tools are not required for beta to successfully branch
     check_dispatch $1 nightly miri src/tools/miri
+    check_dispatch $1 nightly embedded-book src/doc/embedded-book
 }
 
 # If this PR is intended to update one of these tools, do not let the build pass

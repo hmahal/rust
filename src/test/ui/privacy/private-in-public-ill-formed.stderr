@@ -1,15 +1,15 @@
 error[E0118]: no base type found for inherent implementation
-  --> $DIR/private-in-public-ill-formed.rs:24:10
+  --> $DIR/private-in-public-ill-formed.rs:14:10
    |
-LL |     impl <Priv as PrivTr>::AssocAlias { //~ ERROR no base type found for inherent implementation
+LL |     impl <Priv as PrivTr>::AssocAlias {
    |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ impl requires a base type
    |
    = note: either implement a trait on it or create a newtype to wrap it instead
 
 error[E0118]: no base type found for inherent implementation
-  --> $DIR/private-in-public-ill-formed.rs:40:10
+  --> $DIR/private-in-public-ill-formed.rs:30:10
    |
-LL |     impl <Priv as PrivTr>::AssocAlias { //~ ERROR no base type found for inherent implementation
+LL |     impl <Priv as PrivTr>::AssocAlias {
    |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ impl requires a base type
    |
    = note: either implement a trait on it or create a newtype to wrap it instead

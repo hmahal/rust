@@ -1,19 +1,9 @@
-// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 use chalk_engine;
 use smallvec::SmallVec;
-use traits;
-use traits::project::Normalized;
-use ty::fold::{TypeFoldable, TypeFolder, TypeVisitor};
-use ty::{self, Lift, TyCtxt};
+use crate::traits;
+use crate::traits::project::Normalized;
+use crate::ty::fold::{TypeFoldable, TypeFolder, TypeVisitor};
+use crate::ty::{self, Lift, TyCtxt};
 use syntax::symbol::InternedString;
 
 use std::fmt;
@@ -173,9 +163,10 @@ impl<'tcx> fmt::Debug for traits::MismatchedProjectionTypes<'tcx> {
 
 impl<'tcx> fmt::Display for traits::WhereClause<'tcx> {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use traits::WhereClause::*;
+        use crate::traits::WhereClause::*;
 
-        // Bypass ppaux because it does not print out anonymous regions.
+        // Bypass `ty::print` because it does not print out anonymous regions.
+        // FIXME(eddyb) implement a custom `PrettyPrinter`, or move this to `ty::print`.
         fn write_region_name<'tcx>(
             r: ty::Region<'tcx>,
             fmt: &mut fmt::Formatter<'_>
@@ -216,7 +207,7 @@ impl<'tcx> fmt::Display for traits::WhereClause<'tcx> {
 
 impl<'tcx> fmt::Display for traits::WellFormed<'tcx> {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use traits::WellFormed::*;
+        use crate::traits::WellFormed::*;
 
         match self {
             Trait(trait_ref) => write!(fmt, "WellFormed({})", trait_ref),
@@ -227,7 +218,7 @@ impl<'tcx> fmt::Display for traits::WellFormed<'tcx> {
 
 impl<'tcx> fmt::Display for traits::FromEnv<'tcx> {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use traits::FromEnv::*;
+        use crate::traits::FromEnv::*;
 
         match self {
             Trait(trait_ref) => write!(fmt, "FromEnv({})", trait_ref),
@@ -238,7 +229,7 @@ impl<'tcx> fmt::Display for traits::FromEnv<'tcx> {
 
 impl<'tcx> fmt::Display for traits::DomainGoal<'tcx> {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use traits::DomainGoal::*;
+        use crate::traits::DomainGoal::*;
 
         match self {
             Holds(wc) => write!(fmt, "{}", wc),
@@ -256,7 +247,7 @@ impl<'tcx> fmt::Display for traits::DomainGoal<'tcx> {
 
 impl fmt::Display for traits::QuantifierKind {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use traits::QuantifierKind::*;
+        use crate::traits::QuantifierKind::*;
 
         match self {
             Universal => write!(fmt, "forall"),
@@ -266,7 +257,7 @@ impl fmt::Display for traits::QuantifierKind {
 }
 
 /// Collect names for regions / types bound by a quantified goal / clause.
-/// This collector does not try to do anything clever like in ppaux, it's just used
+/// This collector does not try to do anything clever like in `ty::print`, it's just used
 /// for debug output in tests anyway.
 struct BoundNamesCollector {
     // Just sort by name because `BoundRegion::BrNamed` does not have a `BoundVar` index anyway.
@@ -371,7 +362,7 @@ impl<'tcx> TypeVisitor<'tcx> for BoundNamesCollector {
 
 impl<'tcx> fmt::Display for traits::Goal<'tcx> {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use traits::GoalKind::*;
+        use crate::traits::GoalKind::*;
 
         match self {
             Implies(hypotheses, goal) => {
@@ -405,6 +396,7 @@ impl<'tcx> fmt::Display for traits::Goal<'tcx> {
 
                 Ok(())
             }
+            Subtype(a, b) => write!(fmt, "{} <: {}", a, b),
             CannotProve => write!(fmt, "CannotProve"),
         }
     }
@@ -429,7 +421,7 @@ impl<'tcx> fmt::Display for traits::ProgramClause<'tcx> {
 
 impl<'tcx> fmt::Display for traits::Clause<'tcx> {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use traits::Clause::*;
+        use crate::traits::Clause::*;
 
         match self {
             Implies(clause) => write!(fmt, "{}", clause),
@@ -522,11 +514,31 @@ impl<'a, 'tcx> Lift<'tcx> for traits::ObligationCauseCode<'a> {
                 trait_item_def_id,
             }),
             super::ExprAssignable => Some(super::ExprAssignable),
-            super::MatchExpressionArm { arm_span, source } => Some(super::MatchExpressionArm {
+            super::MatchExpressionArm {
                 arm_span,
-                source: source,
+                source,
+                ref prior_arms,
+                last_ty,
+                discrim_hir_id,
+            } => {
+                tcx.lift(&last_ty).map(|last_ty| {
+                    super::MatchExpressionArm {
+                        arm_span,
+                        source,
+                        prior_arms: prior_arms.clone(),
+                        last_ty,
+                        discrim_hir_id,
+                    }
+                })
+            }
+            super::MatchExpressionArmPattern { span, ty } => {
+                tcx.lift(&ty).map(|ty| super::MatchExpressionArmPattern { span, ty })
+            }
+            super::IfExpression { then, outer, semicolon } => Some(super::IfExpression {
+                then,
+                outer,
+                semicolon,
             }),
-            super::IfExpression => Some(super::IfExpression),
             super::IfExpressionWithNoElse => Some(super::IfExpressionWithNoElse),
             super::MainFunctionType => Some(super::MainFunctionType),
             super::StartFunctionType => Some(super::StartFunctionType),
@@ -678,6 +690,7 @@ EnumLiftImpl! {
         (traits::GoalKind::Not)(goal),
         (traits::GoalKind::DomainGoal)(domain_goal),
         (traits::GoalKind::Quantified)(kind, goal),
+        (traits::GoalKind::Subtype)(a, b),
         (traits::GoalKind::CannotProve),
     }
 }
@@ -710,12 +723,36 @@ impl<'a, 'tcx, G: Lift<'tcx>> Lift<'tcx> for traits::InEnvironment<'a, G> {
 impl<'tcx, C> Lift<'tcx> for chalk_engine::ExClause<C>
 where
     C: chalk_engine::context::Context + Clone,
-    C: traits::ExClauseLift<'tcx>,
+    C: traits::ChalkContextLift<'tcx>,
 {
     type Lifted = C::LiftedExClause;
 
     fn lift_to_tcx<'a, 'gcx>(&self, tcx: TyCtxt<'a, 'gcx, 'tcx>) -> Option<Self::Lifted> {
-        <C as traits::ExClauseLift>::lift_ex_clause_to_tcx(self, tcx)
+        <C as traits::ChalkContextLift>::lift_ex_clause_to_tcx(self, tcx)
+    }
+}
+
+impl<'tcx, C> Lift<'tcx> for chalk_engine::DelayedLiteral<C>
+where
+    C: chalk_engine::context::Context + Clone,
+    C: traits::ChalkContextLift<'tcx>,
+{
+    type Lifted = C::LiftedDelayedLiteral;
+
+    fn lift_to_tcx<'a, 'gcx>(&self, tcx: TyCtxt<'a, 'gcx, 'tcx>) -> Option<Self::Lifted> {
+        <C as traits::ChalkContextLift>::lift_delayed_literal_to_tcx(self, tcx)
+    }
+}
+
+impl<'tcx, C> Lift<'tcx> for chalk_engine::Literal<C>
+where
+    C: chalk_engine::context::Context + Clone,
+    C: traits::ChalkContextLift<'tcx>,
+{
+    type Lifted = C::LiftedLiteral;
+
+    fn lift_to_tcx<'a, 'gcx>(&self, tcx: TyCtxt<'a, 'gcx, 'tcx>) -> Option<Self::Lifted> {
+        <C as traits::ChalkContextLift>::lift_literal_to_tcx(self, tcx)
     }
 }
 
@@ -850,6 +887,7 @@ EnumTypeFoldableImpl! {
         (traits::GoalKind::Not)(goal),
         (traits::GoalKind::DomainGoal)(domain_goal),
         (traits::GoalKind::Quantified)(qkind, goal),
+        (traits::GoalKind::Subtype)(a, b),
         (traits::GoalKind::CannotProve),
     }
 }

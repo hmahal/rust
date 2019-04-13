@@ -1,13 +1,3 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! The SourceMap tracks all the source code used within a single crate, mapping
 //! from integer byte positions to the original source code location. Each bit
 //! of source parsed during crate parsing (typically files, in-memory strings,
@@ -20,7 +10,7 @@
 
 pub use syntax_pos::*;
 pub use syntax_pos::hygiene::{ExpnFormat, ExpnInfo};
-pub use self::ExpnFormat::*;
+pub use ExpnFormat::*;
 
 use rustc_data_structures::fx::FxHashMap;
 use rustc_data_structures::stable_hasher::StableHasher;
@@ -32,9 +22,11 @@ use std::path::{Path, PathBuf};
 use std::env;
 use std::fs;
 use std::io;
+use log::debug;
+
 use errors::SourceMapper;
 
-/// Return the span itself if it doesn't come from a macro expansion,
+/// Returns the span itself if it doesn't come from a macro expansion,
 /// otherwise return the call site span up to the `enclosing_sp` by
 /// following the `expn_info` chain.
 pub fn original_sp(sp: Span, enclosing_sp: Span) -> Span {
@@ -70,7 +62,7 @@ pub trait FileLoader {
     /// Query the existence of a file.
     fn file_exists(&self, path: &Path) -> bool;
 
-    /// Return an absolute path to a file, if possible.
+    /// Returns an absolute path to a file, if possible.
     fn abs_path(&self, path: &Path) -> Option<PathBuf>;
 
     /// Read the contents of an UTF-8 file into memory.
@@ -177,7 +169,7 @@ impl SourceMap {
         Ok(self.new_source_file(filename, src))
     }
 
-    pub fn files(&self) -> MappedLockGuard<Vec<Lrc<SourceFile>>> {
+    pub fn files(&self) -> MappedLockGuard<'_, Vec<Lrc<SourceFile>>> {
         LockGuard::map(self.files.borrow(), |files| &mut files.source_files)
     }
 
@@ -406,7 +398,7 @@ impl SourceMap {
         }
     }
 
-    /// Returns `Some(span)`, a union of the lhs and rhs span.  The lhs must precede the rhs. If
+    /// Returns `Some(span)`, a union of the lhs and rhs span. The lhs must precede the rhs. If
     /// there are gaps between lhs and rhs, the resulting union will cross these gaps.
     /// For this to work, the spans have to be:
     ///
@@ -519,7 +511,7 @@ impl SourceMap {
         Ok(FileLines {file: lo.file, lines: lines})
     }
 
-    /// Extract the source surrounding the given `Span` using the `extract_source` function. The
+    /// Extracts the source surrounding the given `Span` using the `extract_source` function. The
     /// extract function takes three arguments: a string slice containing the source, an index in
     /// the slice for the beginning of the span and an index in the slice for the end of the span.
     fn span_to_source<F>(&self, sp: Span, extract_source: F) -> Result<String, SpanSnippetError>
@@ -569,7 +561,7 @@ impl SourceMap {
         }
     }
 
-    /// Return the source snippet as `String` corresponding to the given `Span`
+    /// Returns the source snippet as `String` corresponding to the given `Span`
     pub fn span_to_snippet(&self, sp: Span) -> Result<String, SpanSnippetError> {
         self.span_to_source(sp, |src, start_index, end_index| src[start_index..end_index]
                                                                 .to_string())
@@ -579,12 +571,12 @@ impl SourceMap {
         match self.span_to_prev_source(sp) {
             Err(_) => None,
             Ok(source) => source.split('\n').last().map(|last_line| {
-                last_line.len() - last_line.trim_left().len()
+                last_line.len() - last_line.trim_start().len()
             })
         }
     }
 
-    /// Return the source snippet as `String` before the given `Span`
+    /// Returns the source snippet as `String` before the given `Span`
     pub fn span_to_prev_source(&self, sp: Span) -> Result<String, SpanSnippetError> {
         self.span_to_source(sp, |src, start_index, _| src[..start_index].to_string())
     }
@@ -593,7 +585,7 @@ impl SourceMap {
     /// if no character could be found or if an error occurred while retrieving the code snippet.
     pub fn span_extend_to_prev_char(&self, sp: Span, c: char) -> Span {
         if let Ok(prev_source) = self.span_to_prev_source(sp) {
-            let prev_source = prev_source.rsplit(c).nth(0).unwrap_or("").trim_left();
+            let prev_source = prev_source.rsplit(c).nth(0).unwrap_or("").trim_start();
             if !prev_source.is_empty() && !prev_source.contains('\n') {
                 return sp.with_lo(BytePos(sp.lo().0 - prev_source.len() as u32));
             }
@@ -613,7 +605,7 @@ impl SourceMap {
         for ws in &[" ", "\t", "\n"] {
             let pat = pat.to_owned() + ws;
             if let Ok(prev_source) = self.span_to_prev_source(sp) {
-                let prev_source = prev_source.rsplit(&pat).nth(0).unwrap_or("").trim_left();
+                let prev_source = prev_source.rsplit(&pat).nth(0).unwrap_or("").trim_start();
                 if !prev_source.is_empty() && (!prev_source.contains('\n') || accept_newlines) {
                     return sp.with_lo(BytePos(sp.lo().0 - prev_source.len() as u32));
                 }
@@ -627,7 +619,7 @@ impl SourceMap {
     pub fn span_until_char(&self, sp: Span, c: char) -> Span {
         match self.span_to_snippet(sp) {
             Ok(snippet) => {
-                let snippet = snippet.split(c).nth(0).unwrap_or("").trim_right();
+                let snippet = snippet.split(c).nth(0).unwrap_or("").trim_end();
                 if !snippet.is_empty() && !snippet.contains('\n') {
                     sp.with_hi(BytePos(sp.lo().0 + snippet.len() as u32))
                 } else {
@@ -1131,7 +1123,7 @@ mod tests {
 
     /// Given a string like " ~~~~~~~~~~~~ ", produces a span
     /// converting that range. The idea is that the string has the same
-    /// length as the input, and we uncover the byte positions.  Note
+    /// length as the input, and we uncover the byte positions. Note
     /// that this can span lines and so on.
     fn span_from_selection(input: &str, selection: &str) -> Span {
         assert_eq!(input.len(), selection.len());
@@ -1140,7 +1132,7 @@ mod tests {
         Span::new(BytePos(left_index), BytePos(right_index + 1), NO_EXPANSION)
     }
 
-    /// Test span_to_snippet and span_to_lines for a span converting 3
+    /// Tests span_to_snippet and span_to_lines for a span converting 3
     /// lines in the middle of a file.
     #[test]
     fn span_to_snippet_and_lines_spanning_multiple_lines() {
@@ -1183,7 +1175,7 @@ mod tests {
         assert_eq!(sstr, "blork.rs:2:1: 2:12");
     }
 
-    /// Test failing to merge two spans on different lines
+    /// Tests failing to merge two spans on different lines
     #[test]
     fn span_merging_fail() {
         let sm = SourceMap::new(FilePathMapping::empty());

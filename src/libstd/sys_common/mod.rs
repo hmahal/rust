@@ -1,13 +1,3 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Platform-independent platform abstraction
 //!
 //! This is the platform-independent portion of the standard library's
@@ -25,16 +15,25 @@
 #![allow(missing_docs)]
 #![allow(missing_debug_implementations)]
 
-use sync::Once;
-use sys;
+use crate::sync::Once;
+use crate::sys;
 
 macro_rules! rtabort {
-    ($($t:tt)*) => (::sys_common::util::abort(format_args!($($t)*)))
+    ($($t:tt)*) => (crate::sys_common::util::abort(format_args!($($t)*)))
 }
 
 macro_rules! rtassert {
     ($e:expr) => (if !$e {
         rtabort!(concat!("assertion failed: ", stringify!($e)));
+    })
+}
+
+#[allow(unused_macros)] // not used on all platforms
+macro_rules! rtunwrap {
+    ($ok:ident, $e:expr) => (if let $ok(v) = $e {
+        v
+    } else {
+        rtabort!(concat!("unwrap failed: ", stringify!($e)));
     })
 }
 
@@ -45,6 +44,13 @@ pub mod backtrace;
 pub mod condvar;
 pub mod io;
 pub mod mutex;
+#[cfg(any(rustdoc, // see `mod os`, docs are generated for multiple platforms
+          unix,
+          target_os = "redox",
+          target_os = "cloudabi",
+          target_arch = "wasm32",
+          all(target_vendor = "fortanix", target_env = "sgx")))]
+pub mod os_str_bytes;
 pub mod poison;
 pub mod remutex;
 pub mod rwlock;
@@ -55,14 +61,15 @@ pub mod util;
 pub mod wtf8;
 pub mod bytestring;
 pub mod process;
+pub mod fs;
 
 cfg_if! {
     if #[cfg(any(target_os = "cloudabi",
                  target_os = "l4re",
                  target_os = "redox",
                  all(target_arch = "wasm32", not(target_os = "emscripten")),
-                 target_env = "sgx"))] {
-        pub use sys::net;
+                 all(target_vendor = "fortanix", target_env = "sgx")))] {
+        pub use crate::sys::net;
     } else {
         pub mod net;
     }

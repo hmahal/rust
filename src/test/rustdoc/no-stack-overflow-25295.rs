@@ -1,15 +1,5 @@
-// Copyright 2018 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-// ensure this code doesn't stack overflow
-// aux-build:enum_primitive.rs
+// Ensure this code doesn't stack overflow.
+// aux-build:enum-primitive.rs
 
 #[macro_use] extern crate enum_primitive;
 
@@ -43,4 +33,3 @@ enum_from_primitive! {
         Z1,Z2,Z3,Z4,Z5,Z6,
     }
 }
-

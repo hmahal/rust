@@ -1,14 +1,3 @@
-// Copyright 2016 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-
 // This test case tests the incremental compilation hash (ICH) implementation
 // for if expressions.
 
@@ -36,7 +25,7 @@ pub fn change_condition(x: bool) -> u32 {
 }
 
 #[cfg(not(cfail1))]
-#[rustc_clean(cfg="cfail2", except="HirBody,MirValidated,MirOptimized,TypeckTables")]
+#[rustc_clean(cfg="cfail2", except="HirBody,mir_built,optimized_mir,typeck_tables_of")]
 #[rustc_clean(cfg="cfail3")]
 pub fn change_condition(x: bool) -> u32 {
     if !x {
@@ -57,7 +46,7 @@ pub fn change_then_branch(x: bool) -> u32 {
 }
 
 #[cfg(not(cfail1))]
-#[rustc_clean(cfg="cfail2", except="HirBody,MirValidated,MirOptimized")]
+#[rustc_clean(cfg="cfail2", except="HirBody,mir_built,optimized_mir")]
 #[rustc_clean(cfg="cfail3")]
 pub fn change_then_branch(x: bool) -> u32 {
     if x {
@@ -80,7 +69,7 @@ pub fn change_else_branch(x: bool) -> u32 {
 }
 
 #[cfg(not(cfail1))]
-#[rustc_clean(cfg="cfail2", except="HirBody,MirValidated,MirOptimized")]
+#[rustc_clean(cfg="cfail2", except="HirBody,mir_built,optimized_mir")]
 #[rustc_clean(cfg="cfail3")]
 pub fn change_else_branch(x: bool) -> u32 {
     if x {
@@ -105,7 +94,7 @@ pub fn add_else_branch(x: bool) -> u32 {
 }
 
 #[cfg(not(cfail1))]
-#[rustc_clean(cfg="cfail2", except="HirBody,TypeckTables")]
+#[rustc_clean(cfg="cfail2", except="HirBody,typeck_tables_of")]
 #[rustc_clean(cfg="cfail3")]
 pub fn add_else_branch(x: bool) -> u32 {
     let mut ret = 1;
@@ -131,7 +120,7 @@ pub fn change_condition_if_let(x: Option<u32>) -> u32 {
 }
 
 #[cfg(not(cfail1))]
-#[rustc_clean(cfg="cfail2", except="HirBody,MirValidated,MirOptimized,TypeckTables")]
+#[rustc_clean(cfg="cfail2", except="HirBody,mir_built,optimized_mir,typeck_tables_of")]
 #[rustc_clean(cfg="cfail3")]
 pub fn change_condition_if_let(x: Option<u32>) -> u32 {
     if let Some(_) = x {
@@ -154,7 +143,7 @@ pub fn change_then_branch_if_let(x: Option<u32>) -> u32 {
 }
 
 #[cfg(not(cfail1))]
-#[rustc_clean(cfg="cfail2", except="HirBody,MirValidated,MirOptimized,TypeckTables")]
+#[rustc_clean(cfg="cfail2", except="HirBody,mir_built,optimized_mir,typeck_tables_of")]
 #[rustc_clean(cfg="cfail3")]
 pub fn change_then_branch_if_let(x: Option<u32>) -> u32 {
     if let Some(x) = x {
@@ -177,7 +166,7 @@ pub fn change_else_branch_if_let(x: Option<u32>) -> u32 {
 }
 
 #[cfg(not(cfail1))]
-#[rustc_clean(cfg="cfail2", except="HirBody,MirValidated,MirOptimized")]
+#[rustc_clean(cfg="cfail2", except="HirBody,mir_built,optimized_mir")]
 #[rustc_clean(cfg="cfail3")]
 pub fn change_else_branch_if_let(x: Option<u32>) -> u32 {
     if let Some(x) = x {
@@ -202,7 +191,7 @@ pub fn add_else_branch_if_let(x: Option<u32>) -> u32 {
 }
 
 #[cfg(not(cfail1))]
-#[rustc_clean(cfg="cfail2", except="HirBody,TypeckTables")]
+#[rustc_clean(cfg="cfail2", except="HirBody,typeck_tables_of")]
 #[rustc_clean(cfg="cfail3")]
 pub fn add_else_branch_if_let(x: Option<u32>) -> u32 {
     let mut ret = 1;

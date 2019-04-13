@@ -1,27 +1,19 @@
-// Copyright 2018 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 // Detecting lib features (i.e., features that are not lang features).
 //
 // These are declared using stability attributes (e.g., `#[stable (..)]`
 // and `#[unstable (..)]`), but are not declared in one single location
 // (unlike lang features), which means we need to collect them instead.
 
-use ty::TyCtxt;
+use crate::ty::TyCtxt;
+use crate::hir::intravisit::{self, NestedVisitorMap, Visitor};
 use syntax::symbol::Symbol;
 use syntax::ast::{Attribute, MetaItem, MetaItemKind};
 use syntax_pos::Span;
-use hir::intravisit::{self, NestedVisitorMap, Visitor};
 use rustc_data_structures::fx::{FxHashSet, FxHashMap};
+use rustc_macros::HashStable;
 use errors::DiagnosticId;
 
+#[derive(HashStable)]
 pub struct LibFeatures {
     // A map from feature to stabilisation version.
     pub stable: FxHashMap<Symbol, Symbol>,
@@ -73,7 +65,7 @@ impl<'a, 'tcx> LibFeatureCollector<'a, 'tcx> {
                 for meta in metas {
                     if let Some(mi) = meta.meta_item() {
                         // Find the `feature = ".."` meta-item.
-                        match (&*mi.name().as_str(), mi.value_str()) {
+                        match (mi.name_or_empty().get(), mi.value_str()) {
                             ("feature", val) => feature = val,
                             ("since", val) => since = val,
                             _ => {}

@@ -1,13 +1,3 @@
-// Copyright 2016 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 // run-pass
 #![allow(dead_code)]
 // This test case exposes conditions where the encoding of a trait object type
@@ -18,8 +8,8 @@
 // the symbol name.
 // The fix was to make the order in which predicates get encoded stable.
 
-// aux-build:issue34796aux.rs
-extern crate issue34796aux;
+// aux-build:issue-34796-aux.rs
+extern crate issue_34796_aux;
 
 fn mk<T>() -> T { loop {} }
 
@@ -29,7 +19,7 @@ struct Data<T, E> {
 }
 
 fn main() {
-    issue34796aux::bar(|()| {
+    issue_34796_aux::bar(|()| {
         Data::<(), std::io::Error> {
             data: mk(),
             error: mk(),

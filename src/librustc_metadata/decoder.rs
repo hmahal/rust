@@ -1,24 +1,14 @@
-// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 // Decoding metadata from a single crate's metadata
 
-use cstore::{self, CrateMetadata, MetadataBlob, NativeLibrary, ForeignModule};
-use schema::*;
+use crate::cstore::{self, CrateMetadata, MetadataBlob, NativeLibrary, ForeignModule};
+use crate::schema::*;
 
 use rustc_data_structures::sync::{Lrc, ReadGuard};
 use rustc::hir::map::{DefKey, DefPath, DefPathData, DefPathHash, Definitions};
 use rustc::hir;
 use rustc::middle::cstore::LinkagePreference;
 use rustc::middle::exported_symbols::{ExportedSymbol, SymbolExportLevel};
-use rustc::hir::def::{self, Def, CtorKind};
+use rustc::hir::def::{self, Def, CtorOf, CtorKind};
 use rustc::hir::def_id::{CrateNum, DefId, DefIndex, DefIndexAddressSpace,
                          CRATE_DEF_INDEX, LOCAL_CRATE, LocalDefId};
 use rustc::hir::map::definitions::DefPathTable;
@@ -44,6 +34,7 @@ use syntax::symbol::InternedString;
 use syntax::ext::base::{MacroKind, SyntaxExtension};
 use syntax::ext::hygiene::Mark;
 use syntax_pos::{self, Span, BytePos, Pos, DUMMY_SP, NO_EXPANSION};
+use log::debug;
 
 pub struct DecodeContext<'a, 'tcx: 'a> {
     opaque: opaque::Decoder<'a>,
@@ -422,12 +413,15 @@ impl<'tcx> EntryKind<'tcx> {
             EntryKind::ForeignFn(_) => Def::Fn(did),
             EntryKind::Method(_) => Def::Method(did),
             EntryKind::Type => Def::TyAlias(did),
+            EntryKind::TypeParam => Def::TyParam(did),
+            EntryKind::ConstParam => Def::ConstParam(did),
             EntryKind::Existential => Def::Existential(did),
             EntryKind::AssociatedType(_) => Def::AssociatedTy(did),
             EntryKind::AssociatedExistential(_) => Def::AssociatedExistential(did),
             EntryKind::Mod(_) => Def::Mod(did),
             EntryKind::Variant(_) => Def::Variant(did),
             EntryKind::Trait(_) => Def::Trait(did),
+            EntryKind::TraitAlias(_) => Def::TraitAlias(did),
             EntryKind::Enum(..) => Def::Enum(did),
             EntryKind::MacroDef(_) => Def::Macro(did, MacroKind::Bang),
             EntryKind::ForeignType => Def::ForeignTy(did),
@@ -442,7 +436,7 @@ impl<'tcx> EntryKind<'tcx> {
     }
 }
 
-/// Create the "fake" DefPathTable for a given proc macro crate.
+/// Creates the "fake" DefPathTable for a given proc macro crate.
 ///
 /// The DefPathTable is as follows:
 ///
@@ -530,26 +524,36 @@ impl<'a, 'tcx> CrateMetadata {
     }
 
     pub fn get_trait_def(&self, item_id: DefIndex, sess: &Session) -> ty::TraitDef {
-        let data = match self.entry(item_id).kind {
-            EntryKind::Trait(data) => data.decode((self, sess)),
-            _ => bug!(),
-        };
-
-        ty::TraitDef::new(self.local_def_id(item_id),
-                          data.unsafety,
-                          data.paren_sugar,
-                          data.has_auto_impl,
-                          data.is_marker,
-                          self.def_path_table.def_path_hash(item_id))
+        match self.entry(item_id).kind {
+            EntryKind::Trait(data) => {
+                let data = data.decode((self, sess));
+                ty::TraitDef::new(self.local_def_id(item_id),
+                                  data.unsafety,
+                                  data.paren_sugar,
+                                  data.has_auto_impl,
+                                  data.is_marker,
+                                  self.def_path_table.def_path_hash(item_id))
+            },
+            EntryKind::TraitAlias(_) => {
+                ty::TraitDef::new(self.local_def_id(item_id),
+                                  hir::Unsafety::Normal,
+                                  false,
+                                  false,
+                                  false,
+                                  self.def_path_table.def_path_hash(item_id))
+            },
+            _ => bug!("def-index does not refer to trait or trait alias"),
+        }
     }
 
-    fn get_variant(&self,
-                   tcx: TyCtxt<'a, 'tcx, 'tcx>,
-                   item: &Entry,
-                   index: DefIndex,
-                   adt_kind: ty::AdtKind)
-                   -> ty::VariantDef
-    {
+    fn get_variant(
+        &self,
+        tcx: TyCtxt<'a, 'tcx, 'tcx>,
+        item: &Entry<'_>,
+        index: DefIndex,
+        parent_did: DefId,
+        adt_kind: ty::AdtKind
+    ) -> ty::VariantDef {
         let data = match item.kind {
             EntryKind::Variant(data) |
             EntryKind::Struct(data, _) |
@@ -557,13 +561,18 @@ impl<'a, 'tcx> CrateMetadata {
             _ => bug!(),
         };
 
-        let def_id = self.local_def_id(data.struct_ctor.unwrap_or(index));
-        let attribute_def_id = self.local_def_id(index);
+        let variant_did = if adt_kind == ty::AdtKind::Enum {
+            Some(self.local_def_id(index))
+        } else {
+            None
+        };
+        let ctor_did = data.ctor.map(|index| self.local_def_id(index));
 
         ty::VariantDef::new(
             tcx,
-            def_id,
-            self.item_name(index).as_symbol(),
+            Ident::from_interned_str(self.item_name(index)),
+            variant_did,
+            ctor_did,
             data.discr,
             item.children.decode(self).map(|index| {
                 let f = self.entry(index);
@@ -573,9 +582,10 @@ impl<'a, 'tcx> CrateMetadata {
                     vis: f.visibility.decode(self)
                 }
             }).collect(),
-            adt_kind,
             data.ctor_kind,
-            attribute_def_id
+            adt_kind,
+            parent_did,
+            false,
         )
     }
 
@@ -597,11 +607,11 @@ impl<'a, 'tcx> CrateMetadata {
             item.children
                 .decode(self)
                 .map(|index| {
-                    self.get_variant(tcx, &self.entry(index), index, kind)
+                    self.get_variant(tcx, &self.entry(index), index, did, kind)
                 })
                 .collect()
         } else {
-            std::iter::once(self.get_variant(tcx, &item, item_id, kind)).collect()
+            std::iter::once(self.get_variant(tcx, &item, item_id, did, kind)).collect()
         };
 
         tcx.alloc_adt_def(did, kind, variants, repr)
@@ -625,10 +635,13 @@ impl<'a, 'tcx> CrateMetadata {
                                 item_id: DefIndex,
                                 tcx: TyCtxt<'a, 'tcx, 'tcx>)
                                 -> ty::GenericPredicates<'tcx> {
-        match self.entry(item_id).kind {
-            EntryKind::Trait(data) => data.decode(self).super_predicates.decode((self, tcx)),
-            _ => bug!(),
-        }
+        let super_predicates = match self.entry(item_id).kind {
+            EntryKind::Trait(data) => data.decode(self).super_predicates,
+            EntryKind::TraitAlias(data) => data.decode(self).super_predicates,
+            _ => bug!("def-index does not refer to trait or trait alias"),
+        };
+
+        super_predicates.decode((self, tcx))
     }
 
     pub fn get_generics(&self,
@@ -644,7 +657,7 @@ impl<'a, 'tcx> CrateMetadata {
 
     pub fn get_stability(&self, id: DefIndex) -> Option<attr::Stability> {
         match self.is_proc_macro(id) {
-            true => None,
+            true => self.root.proc_macro_stability.clone(),
             false => self.entry(id).stability.map(|stab| stab.decode(self)),
         }
     }
@@ -803,22 +816,22 @@ impl<'a, 'tcx> CrateMetadata {
                     // Re-export lists automatically contain constructors when necessary.
                     match def {
                         Def::Struct(..) => {
-                            if let Some(ctor_def_id) = self.get_struct_ctor_def_id(child_index) {
+                            if let Some(ctor_def_id) = self.get_ctor_def_id(child_index) {
                                 let ctor_kind = self.get_ctor_kind(child_index);
-                                let ctor_def = Def::StructCtor(ctor_def_id, ctor_kind);
-                                callback(def::Export {
-                                    def: ctor_def,
-                                    vis: self.get_visibility(ctor_def_id.index),
-                                    ident, span,
-                                });
+                                let ctor_def = Def::Ctor(ctor_def_id, CtorOf::Struct, ctor_kind);
+                                let vis = self.get_visibility(ctor_def_id.index);
+                                callback(def::Export { def: ctor_def, vis, ident, span });
                             }
                         }
                         Def::Variant(def_id) => {
                             // Braced variants, unlike structs, generate unusable names in
                             // value namespace, they are reserved for possible future use.
+                            // It's ok to use the variant's id as a ctor id since an
+                            // error will be reported on any use of such resolution anyway.
+                            let ctor_def_id = self.get_ctor_def_id(child_index).unwrap_or(def_id);
                             let ctor_kind = self.get_ctor_kind(child_index);
-                            let ctor_def = Def::VariantCtor(def_id, ctor_kind);
-                            let vis = self.get_visibility(child_index);
+                            let ctor_def = Def::Ctor(ctor_def_id, CtorOf::Variant, ctor_kind);
+                            let vis = self.get_visibility(ctor_def_id.index);
                             callback(def::Export { def: ctor_def, ident, vis, span });
                         }
                         _ => {}
@@ -890,6 +903,9 @@ impl<'a, 'tcx> CrateMetadata {
             EntryKind::AssociatedType(container) => {
                 (ty::AssociatedKind::Type, container, false)
             }
+            EntryKind::AssociatedExistential(container) => {
+                (ty::AssociatedKind::Existential, container, false)
+            }
             _ => bug!("cannot get associated-item of `{:?}`", def_key)
         };
 
@@ -917,10 +933,13 @@ impl<'a, 'tcx> CrateMetadata {
         }
     }
 
-    pub fn get_struct_ctor_def_id(&self, node_id: DefIndex) -> Option<DefId> {
+    pub fn get_ctor_def_id(&self, node_id: DefIndex) -> Option<DefId> {
         match self.entry(node_id).kind {
             EntryKind::Struct(data, _) => {
-                data.decode(self).struct_ctor.map(|index| self.local_def_id(index))
+                data.decode(self).ctor.map(|index| self.local_def_id(index))
+            }
+            EntryKind::Variant(data) => {
+                data.decode(self).ctor.map(|index| self.local_def_id(index))
             }
             _ => None,
         }
@@ -931,11 +950,11 @@ impl<'a, 'tcx> CrateMetadata {
             return Lrc::new([]);
         }
 
-        // The attributes for a tuple struct are attached to the definition, not the ctor;
+        // The attributes for a tuple struct/variant are attached to the definition, not the ctor;
         // we assume that someone passing in a tuple struct ctor is actually wanting to
         // look at the definition
         let def_key = self.def_key(node_id);
-        let item_id = if def_key.disambiguated_data.data == DefPathData::StructCtor {
+        let item_id = if def_key.disambiguated_data.data == DefPathData::Ctor {
             def_key.parent.unwrap()
         } else {
             node_id
@@ -1024,7 +1043,8 @@ impl<'a, 'tcx> CrateMetadata {
         }
         def_key.parent.and_then(|parent_index| {
             match self.entry(parent_index).kind {
-                EntryKind::Trait(_) => Some(self.local_def_id(parent_index)),
+                EntryKind::Trait(_) |
+                EntryKind::TraitAlias(_) => Some(self.local_def_id(parent_index)),
                 _ => None,
             }
         })

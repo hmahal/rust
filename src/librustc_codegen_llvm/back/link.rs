@@ -1,23 +1,15 @@
-// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-use back::wasm;
 use super::archive::{ArchiveBuilder, ArchiveConfig};
 use super::bytecode::RLIB_BYTECODE_EXTENSION;
+use super::rpath::RPathConfig;
+use super::rpath;
+use crate::back::wasm;
+use crate::metadata::METADATA_FILENAME;
+use crate::context::get_reloc_model;
+use crate::llvm;
 use rustc_codegen_ssa::back::linker::Linker;
 use rustc_codegen_ssa::back::link::{remove, ignored_for_lto, each_linked_rlib, linker_and_flavor,
     get_linker};
 use rustc_codegen_ssa::back::command::Command;
-use super::rpath::RPathConfig;
-use super::rpath;
-use metadata::METADATA_FILENAME;
 use rustc::session::config::{self, DebugInfo, OutputFilenames, OutputType, PrintRequest};
 use rustc::session::config::{RUST_CGU_EXT, Lto, Sanitizer};
 use rustc::session::filesearch;
@@ -26,14 +18,12 @@ use rustc::session::Session;
 use rustc::middle::cstore::{NativeLibrary, NativeLibraryKind};
 use rustc::middle::dependency_format::Linkage;
 use rustc_codegen_ssa::CodegenResults;
-use rustc::util::common::time;
+use rustc::util::common::{time, time_ext};
 use rustc_fs_util::fix_windows_verbatim_for_gcc;
 use rustc::hir::def_id::CrateNum;
 use tempfile::{Builder as TempFileBuilder, TempDir};
 use rustc_target::spec::{PanicStrategy, RelroLevel, LinkerFlavor};
 use rustc_data_structures::fx::FxHashSet;
-use context::get_reloc_model;
-use llvm;
 
 use std::ascii;
 use std::char;
@@ -52,7 +42,7 @@ pub use rustc_codegen_utils::link::{find_crate_name, filename_for_input, default
                                     out_filename, check_file_is_writeable};
 
 
-/// Perform the linkage portion of the compilation phase. This will generate all
+/// Performs the linkage portion of the compilation phase. This will generate all
 /// of the requested outputs for this compilation session.
 pub(crate) fn link_binary(sess: &Session,
                           codegen_results: &CodegenResults,
@@ -212,12 +202,7 @@ fn link_binary_output(sess: &Session,
 }
 
 fn archive_search_paths(sess: &Session) -> Vec<PathBuf> {
-    let mut search = Vec::new();
-    sess.target_filesearch(PathKind::Native).for_each_lib_search_path(|path, _| {
-        search.push(path.to_path_buf());
-    });
-
-    search
+    sess.target_filesearch(PathKind::Native).search_path_dirs()
 }
 
 fn archive_config<'a>(sess: &'a Session,
@@ -462,6 +447,21 @@ fn print_native_static_libs(sess: &Session, all_native_libs: &[NativeLibrary]) {
     }
 }
 
+fn get_file_path(sess: &Session, name: &str) -> PathBuf {
+    let fs = sess.target_filesearch(PathKind::Native);
+    let file_path = fs.get_lib_path().join(name);
+    if file_path.exists() {
+        return file_path
+    }
+    for search_path in fs.search_paths() {
+        let file_path = search_path.dir.join(name);
+        if file_path.exists() {
+            return file_path
+        }
+    }
+    PathBuf::from(name)
+}
+
 // Create a dynamic library or executable
 //
 // This will invoke the system linker/cc to create the resulting file. This
@@ -477,7 +477,6 @@ fn link_natively(sess: &Session,
     // The invocations of cc share some flags across platforms
     let (pname, mut cmd) = get_linker(sess, &linker, flavor);
 
-    let root = sess.target_filesearch(PathKind::Native).get_lib_path();
     if let Some(args) = sess.target.target.options.pre_link_args.get(&flavor) {
         cmd.args(args);
     }
@@ -505,12 +504,12 @@ fn link_natively(sess: &Session,
         &sess.target.target.options.pre_link_objects_dll
     };
     for obj in pre_link_objects {
-        cmd.arg(root.join(obj));
+        cmd.arg(get_file_path(sess, obj));
     }
 
     if crate_type == config::CrateType::Executable && sess.crt_static() {
         for obj in &sess.target.target.options.pre_link_objects_exe_crt {
-            cmd.arg(root.join(obj));
+            cmd.arg(get_file_path(sess, obj));
         }
     }
 
@@ -524,7 +523,7 @@ fn link_natively(sess: &Session,
     }
 
     {
-        let target_cpu = ::llvm_util::target_cpu(sess);
+        let target_cpu = crate::llvm_util::target_cpu(sess);
         let mut linker = codegen_results.linker_info.to_linker(cmd, &sess, flavor, target_cpu);
         link_args(&mut *linker, flavor, sess, crate_type, tmpdir,
                   out_filename, codegen_results);
@@ -534,11 +533,11 @@ fn link_natively(sess: &Session,
         cmd.args(args);
     }
     for obj in &sess.target.target.options.post_link_objects {
-        cmd.arg(root.join(obj));
+        cmd.arg(get_file_path(sess, obj));
     }
     if sess.crt_static() {
         for obj in &sess.target.target.options.post_link_objects_crt {
-            cmd.arg(root.join(obj));
+            cmd.arg(get_file_path(sess, obj));
         }
     }
     if let Some(args) = sess.target.target.options.post_link_args.get(&flavor) {
@@ -699,7 +698,6 @@ fn link_natively(sess: &Session,
     }
 
     if sess.opts.target_triple.triple() == "wasm32-unknown-unknown" {
-        wasm::rewrite_imports(&out_filename, &codegen_results.crate_info.wasm_imports);
         wasm::add_producer_section(
             &out_filename,
             &sess.edition().to_string(),
@@ -809,7 +807,7 @@ fn exec_linker(sess: &Session, cmd: &mut Command, out_filename: &Path, tmpdir: &
     }
 
     impl<'a> fmt::Display for Escape<'a> {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             if self.is_like_msvc {
                 // This is "documented" at
                 // https://msdn.microsoft.com/en-us/library/4xdcbak7.aspx
@@ -858,7 +856,7 @@ fn link_args(cmd: &mut dyn Linker,
              codegen_results: &CodegenResults) {
 
     // Linker plugins should be specified early in the list of arguments
-    cmd.cross_lang_lto();
+    cmd.linker_plugin_lto();
 
     // The default library location, we need this to find the runtime.
     // The location of crates will be determined as needed.
@@ -1024,11 +1022,10 @@ fn link_args(cmd: &mut dyn Linker,
     // where extern libraries might live, based on the
     // addl_lib_search_paths
     if sess.opts.cg.rpath {
-        let sysroot = sess.sysroot();
         let target_triple = sess.opts.target_triple.triple();
         let mut get_install_prefix_lib_path = || {
             let install_prefix = option_env!("CFG_PREFIX").expect("CFG_PREFIX");
-            let tlib = filesearch::relative_target_lib_path(sysroot, target_triple);
+            let tlib = filesearch::relative_target_lib_path(&sess.sysroot, target_triple);
             let mut path = PathBuf::from(install_prefix);
             path.push(&tlib);
 
@@ -1068,12 +1065,13 @@ fn link_args(cmd: &mut dyn Linker,
 fn add_local_native_libraries(cmd: &mut dyn Linker,
                               sess: &Session,
                               codegen_results: &CodegenResults) {
-    sess.target_filesearch(PathKind::All).for_each_lib_search_path(|path, k| {
-        match k {
-            PathKind::Framework => { cmd.framework_path(path); }
-            _ => { cmd.include_path(&fix_windows_verbatim_for_gcc(path)); }
+    let filesearch = sess.target_filesearch(PathKind::All);
+    for search_path in filesearch.search_paths() {
+        match search_path.kind {
+            PathKind::Framework => { cmd.framework_path(&search_path.dir); }
+            _ => { cmd.include_path(&fix_windows_verbatim_for_gcc(&search_path.dir)); }
         }
-    });
+    }
 
     let relevant_libs = codegen_results.crate_info.used_libraries.iter().filter(|l| {
         relevant_lib(sess, l)
@@ -1321,7 +1319,7 @@ fn add_upstream_rust_crates(cmd: &mut dyn Linker,
         let name = cratepath.file_name().unwrap().to_str().unwrap();
         let name = &name[3..name.len() - 5]; // chop off lib/.rlib
 
-        time(sess, &format!("altering {}.rlib", name), || {
+        time_ext(sess.time_extended(), Some(sess), &format!("altering {}.rlib", name), || {
             let cfg = archive_config(sess, &dst, Some(cratepath));
             let mut archive = ArchiveBuilder::new(cfg);
             archive.update_symbols();
@@ -1398,10 +1396,6 @@ fn add_upstream_rust_crates(cmd: &mut dyn Linker,
 
     // Same thing as above, but for dynamic crates instead of static crates.
     fn add_dynamic_crate(cmd: &mut dyn Linker, sess: &Session, cratepath: &Path) {
-        // If we're performing LTO, then it should have been previously required
-        // that all upstream rust dependencies were available in an rlib format.
-        assert!(!are_upstream_rust_objects_already_included(sess));
-
         // Just need to tell the linker about where the library lives and
         // what its name is
         let parent = cratepath.parent();
@@ -1492,7 +1486,7 @@ fn are_upstream_rust_objects_already_included(sess: &Session) -> bool {
         Lto::Thin => {
             // If we defer LTO to the linker, we haven't run LTO ourselves, so
             // any upstream object files have not been copied yet.
-            !sess.opts.debugging_opts.cross_lang_lto.enabled()
+            !sess.opts.cg.linker_plugin_lto.enabled()
         }
         Lto::No |
         Lto::ThinLocal => false,

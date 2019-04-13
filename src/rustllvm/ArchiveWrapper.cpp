@@ -1,13 +1,3 @@
-// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 #include "rustllvm.h"
 
 #include "llvm/Object/Archive.h"
@@ -34,9 +24,14 @@ struct RustArchiveIterator {
   bool First;
   Archive::child_iterator Cur;
   Archive::child_iterator End;
-  Error Err;
+  std::unique_ptr<Error> Err;
 
-  RustArchiveIterator() : First(true), Err(Error::success()) {}
+  RustArchiveIterator(Archive::child_iterator Cur, Archive::child_iterator End,
+      std::unique_ptr<Error> Err)
+    : First(true),
+      Cur(Cur),
+      End(End),
+      Err(std::move(Err)) {}
 };
 
 enum class LLVMRustArchiveKind {
@@ -94,15 +89,14 @@ extern "C" void LLVMRustDestroyArchive(LLVMRustArchiveRef RustArchive) {
 extern "C" LLVMRustArchiveIteratorRef
 LLVMRustArchiveIteratorNew(LLVMRustArchiveRef RustArchive) {
   Archive *Archive = RustArchive->getBinary();
-  RustArchiveIterator *RAI = new RustArchiveIterator();
-  RAI->Cur = Archive->child_begin(RAI->Err);
-  if (RAI->Err) {
-    LLVMRustSetLastError(toString(std::move(RAI->Err)).c_str());
-    delete RAI;
+  std::unique_ptr<Error> Err = llvm::make_unique<Error>(Error::success());
+  auto Cur = Archive->child_begin(*Err);
+  if (*Err) {
+    LLVMRustSetLastError(toString(std::move(*Err)).c_str());
     return nullptr;
   }
-  RAI->End = Archive->child_end();
-  return RAI;
+  auto End = Archive->child_end();
+  return new RustArchiveIterator(Cur, End, std::move(Err));
 }
 
 extern "C" LLVMRustArchiveChildConstRef
@@ -118,8 +112,8 @@ LLVMRustArchiveIteratorNext(LLVMRustArchiveIteratorRef RAI) {
   // but instead advance it *before* fetching the child in all later calls.
   if (!RAI->First) {
     ++RAI->Cur;
-    if (RAI->Err) {
-      LLVMRustSetLastError(toString(std::move(RAI->Err)).c_str());
+    if (*RAI->Err) {
+      LLVMRustSetLastError(toString(std::move(*RAI->Err)).c_str());
       return nullptr;
     }
   } else {
@@ -216,16 +210,11 @@ LLVMRustWriteArchive(char *Dst, size_t NumMembers,
       Members.push_back(std::move(*MOrErr));
     }
   }
+
   auto Result = writeArchive(Dst, Members, WriteSymbtab, Kind, true, false);
-#if LLVM_VERSION_GE(6, 0)
   if (!Result)
     return LLVMRustResult::Success;
   LLVMRustSetLastError(toString(std::move(Result)).c_str());
-#else
-  if (!Result.second)
-    return LLVMRustResult::Success;
-  LLVMRustSetLastError(Result.second.message().c_str());
-#endif
 
   return LLVMRustResult::Failure;
 }

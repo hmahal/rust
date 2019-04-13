@@ -1,13 +1,3 @@
-// Copyright 2018 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Internal interface for communicating between a `proc_macro` client
 //! (a proc macro crate) and a `proc_macro` server (a compiler front-end).
 //!
@@ -27,7 +17,7 @@ use std::panic;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Once;
 use std::thread;
-use {Delimiter, Level, LineColumn, Spacing};
+use crate::{Delimiter, Level, LineColumn, Spacing};
 
 /// Higher-order macro describing the server RPC API, allowing automatic
 /// generation of type-safe Rust APIs, both client-side and server-side.
@@ -165,6 +155,7 @@ macro_rules! with_api {
                 fn end($self: $S::Span) -> LineColumn;
                 fn join($self: $S::Span, other: $S::Span) -> Option<$S::Span>;
                 fn resolved_at($self: $S::Span, at: $S::Span) -> $S::Span;
+                fn source_text($self: $S::Span) -> Option<String>;
             },
         }
     };
@@ -206,9 +197,9 @@ mod scoped_cell;
 #[forbid(unsafe_code)]
 pub mod server;
 
-use self::buffer::Buffer;
-pub use self::rpc::PanicMessage;
-use self::rpc::{Decode, DecodeMut, Encode, Reader, Writer};
+use buffer::Buffer;
+pub use rpc::PanicMessage;
+use rpc::{Decode, DecodeMut, Encode, Reader, Writer};
 
 /// An active connection between a server and a client.
 /// The server creates the bridge (`Bridge::run_server` in `server.rs`),
@@ -235,8 +226,8 @@ mod api_tags {
 
     macro_rules! declare_tags {
         ($($name:ident {
-            $(fn $method:ident($($arg:ident: $arg_ty:ty),* $(,)*) $(-> $ret_ty:ty)*;)*
-        }),* $(,)*) => {
+            $(fn $method:ident($($arg:ident: $arg_ty:ty),* $(,)?) $(-> $ret_ty:ty)*;)*
+        }),* $(,)?) => {
             $(
                 pub(super) enum $name {
                     $($method),*
@@ -317,7 +308,7 @@ impl<T: Unmark> Unmark for Option<T> {
 }
 
 macro_rules! mark_noop {
-    ($($ty:ty),* $(,)*) => {
+    ($($ty:ty),* $(,)?) => {
         $(
             impl Mark for $ty {
                 type Unmarked = Self;

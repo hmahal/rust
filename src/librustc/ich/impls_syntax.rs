@@ -1,17 +1,7 @@
-// Copyright 2017 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! This module contains `HashStable` implementations for various data types
 //! from libsyntax in no particular order.
 
-use ich::StableHashingContext;
+use crate::ich::StableHashingContext;
 
 use std::hash as std_hash;
 use std::mem;
@@ -23,7 +13,7 @@ use syntax::symbol::{InternedString, LocalInternedString};
 use syntax::tokenstream;
 use syntax_pos::SourceFile;
 
-use hir::def_id::{DefId, CrateNum, CRATE_DEF_INDEX};
+use crate::hir::def_id::{DefId, CrateNum, CRATE_DEF_INDEX};
 
 use smallvec::SmallVec;
 use rustc_data_structures::stable_hasher::{HashStable, ToStableHashKey,
@@ -157,7 +147,7 @@ for ::syntax::attr::StabilityLevel {
     }
 }
 
-impl_stable_hash_for!(struct ::syntax::attr::RustcDeprecation { since, reason });
+impl_stable_hash_for!(struct ::syntax::attr::RustcDeprecation { since, reason, suggestion });
 
 
 impl_stable_hash_for!(enum ::syntax::attr::IntType {
@@ -174,6 +164,7 @@ impl_stable_hash_for!(enum ::syntax::ast::LitIntType {
 impl_stable_hash_for_spanned!(::syntax::ast::LitKind);
 impl_stable_hash_for!(enum ::syntax::ast::LitKind {
     Str(value, style),
+    Err(value),
     ByteStr(value),
     Byte(value),
     Char(value),
@@ -206,7 +197,8 @@ impl<'a> HashStable<StableHashingContext<'a>> for [ast::Attribute] {
         let filtered: SmallVec<[&ast::Attribute; 8]> = self
             .iter()
             .filter(|attr| {
-                !attr.is_sugared_doc && !hcx.is_ignored_attr(attr.name())
+                !attr.is_sugared_doc &&
+                !attr.ident().map_or(false, |ident| hcx.is_ignored_attr(ident.name))
             })
             .collect();
 
@@ -233,7 +225,7 @@ impl<'a> HashStable<StableHashingContext<'a>> for ast::Attribute {
                                           hcx: &mut StableHashingContext<'a>,
                                           hasher: &mut StableHasher<W>) {
         // Make sure that these have been filtered out.
-        debug_assert!(!hcx.is_ignored_attr(self.name()));
+        debug_assert!(!self.ident().map_or(false, |ident| hcx.is_ignored_attr(ident.name)));
         debug_assert!(!self.is_sugared_doc);
 
         let ast::Attribute {
@@ -265,10 +257,10 @@ for tokenstream::TokenTree {
                 span.hash_stable(hcx, hasher);
                 hash_token(token, hcx, hasher);
             }
-            tokenstream::TokenTree::Delimited(span, ref delimited) => {
+            tokenstream::TokenTree::Delimited(span, delim, ref tts) => {
                 span.hash_stable(hcx, hasher);
-                std_hash::Hash::hash(&delimited.delim, hasher);
-                for sub_tt in delimited.stream().trees() {
+                std_hash::Hash::hash(&delim, hasher);
+                for sub_tt in tts.trees() {
                     sub_tt.hash_stable(hcx, hasher);
                 }
             }
@@ -339,6 +331,7 @@ fn hash_token<'a, 'gcx, W: StableHasherResult>(
             match *lit {
                 token::Lit::Byte(val) |
                 token::Lit::Char(val) |
+                token::Lit::Err(val) |
                 token::Lit::Integer(val) |
                 token::Lit::Float(val) |
                 token::Lit::Str_(val) |
@@ -367,15 +360,13 @@ fn hash_token<'a, 'gcx, W: StableHasherResult>(
     }
 }
 
-impl_stable_hash_for_spanned!(::syntax::ast::NestedMetaItemKind);
-
-impl_stable_hash_for!(enum ::syntax::ast::NestedMetaItemKind {
+impl_stable_hash_for!(enum ::syntax::ast::NestedMetaItem {
     MetaItem(meta_item),
     Literal(lit)
 });
 
 impl_stable_hash_for!(struct ::syntax::ast::MetaItem {
-    ident,
+    path,
     node,
     span
 });

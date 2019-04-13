@@ -1,22 +1,10 @@
-// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-use build::{BlockAnd, BlockAndExtension, BlockFrame, Builder};
-use build::ForGuard::OutsideGuard;
-use build::matches::ArmHasGuard;
-use hair::*;
+use crate::build::{BlockAnd, BlockAndExtension, BlockFrame, Builder};
+use crate::build::ForGuard::OutsideGuard;
+use crate::build::matches::ArmHasGuard;
+use crate::hair::*;
 use rustc::mir::*;
 use rustc::hir;
 use syntax_pos::Span;
-
-use std::slice;
 
 impl<'a, 'gcx, 'tcx> Builder<'a, 'gcx, 'tcx> {
     pub fn ast_block(&mut self,
@@ -135,7 +123,7 @@ impl<'a, 'gcx, 'tcx> Builder<'a, 'gcx, 'tcx> {
                             None,
                             remainder_span,
                             lint_level,
-                            slice::from_ref(&pattern),
+                            &pattern,
                             ArmHasGuard(false),
                             Some((None, initializer_span)),
                         );
@@ -148,12 +136,13 @@ impl<'a, 'gcx, 'tcx> Builder<'a, 'gcx, 'tcx> {
                             }));
                     } else {
                         scope = this.declare_bindings(
-                            None, remainder_span, lint_level, slice::from_ref(&pattern),
+                            None, remainder_span, lint_level, &pattern,
                             ArmHasGuard(false), None);
 
+                        debug!("ast_block_stmts: pattern={:?}", pattern);
                         this.visit_bindings(
                             &pattern,
-                            &PatternTypeProjections::none(),
+                            UserTypeProjections::none(),
                             &mut |this, _, _, _, node, span, _, _| {
                                 this.storage_live_binding(block, node, span, OutsideGuard);
                                 this.schedule_drop_for_binding(node, span, OutsideGuard);
@@ -174,7 +163,7 @@ impl<'a, 'gcx, 'tcx> Builder<'a, 'gcx, 'tcx> {
         // Then, the block may have an optional trailing expression which is a “return” value
         // of the block, which is stored into `destination`.
         let tcx = this.hir.tcx();
-        let destination_ty = destination.ty(&this.local_decls, tcx).to_ty(tcx);
+        let destination_ty = destination.ty(&this.local_decls, tcx).ty;
         if let Some(expr) = expr {
             let tail_result_is_ignored = destination_ty.is_unit() ||
                 this.block_context.currently_ignores_tail_results();
@@ -215,14 +204,14 @@ impl<'a, 'gcx, 'tcx> Builder<'a, 'gcx, 'tcx> {
         debug!("update_source_scope_for({:?}, {:?})", span, safety_mode);
         let new_unsafety = match safety_mode {
             BlockSafety::Safe => None,
-            BlockSafety::ExplicitUnsafe(node_id) => {
+            BlockSafety::ExplicitUnsafe(hir_id) => {
                 assert_eq!(self.push_unsafe_count, 0);
                 match self.unpushed_unsafe {
                     Safety::Safe => {}
                     _ => return
                 }
-                self.unpushed_unsafe = Safety::ExplicitUnsafe(node_id);
-                Some(Safety::ExplicitUnsafe(node_id))
+                self.unpushed_unsafe = Safety::ExplicitUnsafe(hir_id);
+                Some(Safety::ExplicitUnsafe(hir_id))
             }
             BlockSafety::PushUnsafe => {
                 self.push_unsafe_count += 1;

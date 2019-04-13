@@ -1,13 +1,3 @@
-// Copyright 2016 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 // These `thumbv*` targets cover the ARM Cortex-M family of processors which are widely used in
 // microcontrollers. Namely, all these processors:
 //
@@ -38,7 +28,7 @@
 // build scripts / gcc flags.
 
 use std::default::Default;
-use spec::{PanicStrategy, TargetOptions};
+use crate::spec::{PanicStrategy, TargetOptions};
 
 pub fn opts() -> TargetOptions {
     // See rust-lang/rfcs#1645 for a discussion about these defaults

@@ -1,19 +1,9 @@
-// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! An iterator over the type substructure.
 //! WARNING: this does not keep track of the region depth.
 
-use mir::interpret::ConstValue;
-use ty::{self, Ty};
+use crate::ty::{self, Ty};
 use smallvec::{self, SmallVec};
+use crate::mir::interpret::ConstValue;
 
 // The TypeWalker's stack is hot enough that it's worth going to some effort to
 // avoid heap allocations.
@@ -85,7 +75,10 @@ fn push_subtypes<'tcx>(stack: &mut TypeWalkerStack<'tcx>, parent_ty: Ty<'tcx>) {
         ty::Placeholder(..) | ty::Bound(..) | ty::Foreign(..) => {
         }
         ty::Array(ty, len) => {
-            push_const(stack, len);
+            if let ConstValue::Unevaluated(_, substs) = len.val {
+                stack.extend(substs.types().rev());
+            }
+            stack.push(len.ty);
             stack.push(ty);
         }
         ty::Slice(ty) => {
@@ -108,7 +101,7 @@ fn push_subtypes<'tcx>(stack: &mut TypeWalkerStack<'tcx>, parent_ty: Ty<'tcx>) {
                         (p.substs, Some(p.ty)),
                     ty::ExistentialPredicate::AutoTrait(_) =>
                         // Empty iterator
-                        (ty::Substs::empty(), None),
+                        (ty::InternalSubsts::empty(), None),
                 };
 
                 substs.types().rev().chain(opt_ty)
@@ -137,11 +130,4 @@ fn push_subtypes<'tcx>(stack: &mut TypeWalkerStack<'tcx>, parent_ty: Ty<'tcx>) {
             stack.extend(sig.skip_binder().inputs().iter().cloned().rev());
         }
     }
-}
-
-fn push_const<'tcx>(stack: &mut TypeWalkerStack<'tcx>, constant: &'tcx ty::Const<'tcx>) {
-    if let ConstValue::Unevaluated(_, substs) = constant.val {
-        stack.extend(substs.types().rev());
-    }
-    stack.push(constant.ty);
 }

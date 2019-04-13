@@ -1,13 +1,3 @@
-// Copyright 2014-2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 #![deny(warnings)]
 #![allow(unused_must_use)]
 #![allow(unused_features)]
@@ -248,7 +238,6 @@ pub fn main() {
 // Basic test to make sure that we can invoke the `write!` macro with an
 // fmt::Write instance.
 fn test_write() {
-    use std::fmt::Write;
     let mut buf = String::new();
     write!(&mut buf, "{}", 3);
     {
@@ -277,7 +266,6 @@ fn test_print() {
 // Just make sure that the macros are defined, there's not really a lot that we
 // can do with them just yet (to test the output)
 fn test_format_args() {
-    use std::fmt::Write;
     let mut buf = String::new();
     {
         let w = &mut buf;

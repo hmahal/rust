@@ -1,15 +1,15 @@
 error[E0208]: [-, +]
-  --> $DIR/variance-associated-types.rs:23:1
+  --> $DIR/variance-associated-types.rs:13:1
    |
-LL | / struct Foo<'a, T : Trait<'a>> { //~ ERROR [-, +]
+LL | / struct Foo<'a, T : Trait<'a>> {
 LL | |     field: (T, &'a ())
 LL | | }
    | |_^
 
 error[E0208]: [o, o]
-  --> $DIR/variance-associated-types.rs:28:1
+  --> $DIR/variance-associated-types.rs:18:1
    |
-LL | / struct Bar<'a, T : Trait<'a>> { //~ ERROR [o, o]
+LL | / struct Bar<'a, T : Trait<'a>> {
 LL | |     field: <T as Trait<'a>>::Type
 LL | | }
    | |_^

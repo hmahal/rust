@@ -1,5 +1,5 @@
 error[E0119]: conflicting implementations of trait `IntoPyDictPointer` for type `()`:
-  --> $DIR/issue-52050.rs:38:1
+  --> $DIR/issue-52050.rs:28:1
    |
 LL | / impl<I> IntoPyDictPointer for I
 LL | | where
@@ -8,7 +8,7 @@ LL | | {
 LL | | }
    | |_- first implementation here
 LL | 
-LL |   impl IntoPyDictPointer for () //~ ERROR conflicting implementations
+LL |   impl IntoPyDictPointer for ()
    |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ conflicting implementation for `()`
    |
    = note: upstream crates may add new impl of trait `std::iter::Iterator` for type `()` in future versions

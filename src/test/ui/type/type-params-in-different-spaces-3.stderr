@@ -1,9 +1,9 @@
 error[E0308]: mismatched types
-  --> $DIR/type-params-in-different-spaces-3.rs:13:9
+  --> $DIR/type-params-in-different-spaces-3.rs:3:9
    |
 LL |     fn test<X>(u: X) -> Self {
    |                         ---- expected `Self` because of return type
-LL |         u   //~ ERROR mismatched types
+LL |         u
    |         ^ expected Self, found type parameter
    |
    = note: expected type `Self`

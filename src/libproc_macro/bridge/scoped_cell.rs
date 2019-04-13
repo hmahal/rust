@@ -1,13 +1,3 @@
-// Copyright 2018 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! `Cell` variant for (scoped) existential lifetimes.
 
 use std::cell::Cell;
@@ -48,7 +38,7 @@ impl<T: LambdaL> ScopedCell<T> {
         ScopedCell(Cell::new(value))
     }
 
-    /// Set the value in `self` to `replacement` while
+    /// Sets the value in `self` to `replacement` while
     /// running `f`, which gets the old value, mutably.
     /// The old value will be restored after `f` exits, even
     /// by panic, including modifications made to it by `f`.
@@ -83,7 +73,7 @@ impl<T: LambdaL> ScopedCell<T> {
         f(RefMutL(put_back_on_drop.value.as_mut().unwrap()))
     }
 
-    /// Set the value in `self` to `value` while running `f`.
+    /// Sets the value in `self` to `value` while running `f`.
     pub fn set<'a, R>(&self, value: <T as ApplyL<'a>>::Out, f: impl FnOnce() -> R) -> R {
         self.replace(value, |_| f())
     }

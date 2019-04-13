@@ -1,13 +1,3 @@
-// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 #![feature(custom_attribute)]
 
 macro_rules! stmt_mac {
@@ -101,42 +91,42 @@ item_mac!(e);
 extern {
     #[cfg(unset)]
     fn x(a: [u8; #[attr] 5]);
-    fn y(a: [u8; #[attr] 5]); //~ ERROR 15701
+    fn y(a: [u8; #[attr] 5]); //~ ERROR attributes on expressions are experimental
 }
 
 struct Foo;
 impl Foo {
     #[cfg(unset)]
     const X: u8 = #[attr] 5;
-    const Y: u8 = #[attr] 5; //~ ERROR 15701
+    const Y: u8 = #[attr] 5; //~ ERROR attributes on expressions are experimental
 }
 
 trait Bar {
     #[cfg(unset)]
     const X: [u8; #[attr] 5];
-    const Y: [u8; #[attr] 5]; //~ ERROR 15701
+    const Y: [u8; #[attr] 5]; //~ ERROR attributes on expressions are experimental
 }
 
 struct Joyce {
     #[cfg(unset)]
     field: [u8; #[attr] 5],
-    field2: [u8; #[attr] 5] //~ ERROR 15701
+    field2: [u8; #[attr] 5] //~ ERROR attributes on expressions are experimental
 }
 
 struct Walky(
     #[cfg(unset)] [u8; #[attr] 5],
-    [u8; #[attr] 5] //~ ERROR 15701
+    [u8; #[attr] 5] //~ ERROR attributes on expressions are experimental
 );
 
 enum Mike {
     Happy(
         #[cfg(unset)] [u8; #[attr] 5],
-        [u8; #[attr] 5] //~ ERROR 15701
+        [u8; #[attr] 5] //~ ERROR attributes on expressions are experimental
     ),
     Angry {
         #[cfg(unset)]
         field: [u8; #[attr] 5],
-        field2: [u8; #[attr] 5] //~ ERROR 15701
+        field2: [u8; #[attr] 5] //~ ERROR attributes on expressions are experimental
     }
 }
 
@@ -144,7 +134,7 @@ fn pat() {
     match 5 {
         #[cfg(unset)]
         5 => #[attr] (),
-        6 => #[attr] (), //~ ERROR 15701
+        6 => #[attr] (), //~ ERROR attributes on expressions are experimental
         _ => (),
     }
 }

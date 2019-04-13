@@ -1,13 +1,3 @@
-// Copyright 2018 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 /// For all the linkers we support, and information they might
 /// need out of the shared crate context before we get rid of it.
 
@@ -19,7 +9,7 @@ use rustc_target::spec::LinkerFlavor;
 use rustc::hir::def_id::CrateNum;
 
 use super::command::Command;
-use CrateInfo;
+use crate::CrateInfo;
 
 use cc::windows_registry;
 use std::fs;
@@ -159,19 +149,23 @@ pub fn linker_and_flavor(sess: &Session) -> (PathBuf, LinkerFlavor) {
                 LinkerFlavor::Ld => "ld",
                 LinkerFlavor::Msvc => "link.exe",
                 LinkerFlavor::Lld(_) => "lld",
+                LinkerFlavor::PtxLinker => "rust-ptx-linker",
             }), flavor)),
             (Some(linker), None) => {
-                let stem = if linker.extension().and_then(|ext| ext.to_str()) == Some("exe") {
-                    linker.file_stem().and_then(|stem| stem.to_str())
-                } else {
-                    linker.to_str()
-                }.unwrap_or_else(|| {
-                    sess.fatal("couldn't extract file stem from specified linker");
-                }).to_owned();
+                let stem = linker
+                    .file_stem()
+                    .and_then(|stem| stem.to_str())
+                    .unwrap_or_else(|| {
+                        sess.fatal("couldn't extract file stem from specified linker")
+                    });
 
                 let flavor = if stem == "emcc" {
                     LinkerFlavor::Em
-                } else if stem == "gcc" || stem.ends_with("-gcc") {
+                } else if stem == "gcc"
+                    || stem.ends_with("-gcc")
+                    || stem == "clang"
+                    || stem.ends_with("-clang")
+                {
                     LinkerFlavor::Gcc
                 } else if stem == "ld" || stem == "ld.lld" || stem.ends_with("-ld") {
                     LinkerFlavor::Ld
@@ -192,11 +186,7 @@ pub fn linker_and_flavor(sess: &Session) -> (PathBuf, LinkerFlavor) {
 
     // linker and linker flavor specified via command line have precedence over what the target
     // specification specifies
-    if let Some(ret) = infer_from(
-        sess,
-        sess.opts.cg.linker.clone(),
-        sess.opts.debugging_opts.linker_flavor,
-    ) {
+    if let Some(ret) = infer_from(sess, sess.opts.cg.linker.clone(), sess.opts.cg.linker_flavor) {
         return ret;
     }
 

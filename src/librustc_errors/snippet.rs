@@ -1,16 +1,6 @@
-// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 // Code for annotating snippets.
 
-use Level;
+use crate::Level;
 
 #[derive(Clone, Debug, PartialOrd, Ord, PartialEq, Eq)]
 pub struct Line {
@@ -28,11 +18,18 @@ pub struct MultilineAnnotation {
     pub end_col: usize,
     pub is_primary: bool,
     pub label: Option<String>,
+    pub overlaps_exactly: bool,
 }
 
 impl MultilineAnnotation {
     pub fn increase_depth(&mut self) {
         self.depth += 1;
+    }
+
+    /// Compare two `MultilineAnnotation`s considering only the `Span` they cover.
+    pub fn same_span(&self, other: &MultilineAnnotation) -> bool {
+        self.line_start == other.line_start && self.line_end == other.line_end
+            && self.start_col == other.start_col && self.end_col == other.end_col
     }
 
     pub fn as_start(&self) -> Annotation {

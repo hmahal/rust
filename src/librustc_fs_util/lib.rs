@@ -1,12 +1,4 @@
-// Copyright 2018 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
+#![deny(rust_2018_idioms)]
 
 use std::path::{Path, PathBuf};
 use std::ffi::CString;
@@ -66,7 +58,7 @@ pub enum LinkOrCopy {
     Copy,
 }
 
-/// Copy `p` into `q`, preferring to use hard-linking if possible. If
+/// Copies `p` into `q`, preferring to use hard-linking if possible. If
 /// `q` already exists, it is removed first.
 /// The result indicates which of the two operations has been performed.
 pub fn link_or_copy<P: AsRef<Path>, Q: AsRef<Path>>(p: P, q: Q) -> io::Result<LinkOrCopy> {

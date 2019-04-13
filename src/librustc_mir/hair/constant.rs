@@ -14,15 +14,14 @@ crate fn lit_to_const<'a, 'gcx, 'tcx>(
     tcx: TyCtxt<'a, 'gcx, 'tcx>,
     ty: Ty<'tcx>,
     neg: bool,
-) -> Result<&'tcx ty::Const<'tcx>, LitToConstError> {
+) -> Result<ty::Const<'tcx>, LitToConstError> {
     use syntax::ast::*;
 
     let trunc = |n| {
         let param_ty = ParamEnv::reveal_all().and(tcx.lift_to_global(&ty).unwrap());
         let width = tcx.layout_of(param_ty).map_err(|_| LitToConstError::Reported)?.size;
         trace!("trunc {} with size {} and shift {}", n, width.bits(), 128 - width.bits());
-        let shift = 128 - width.bits();
-        let result = (n << shift) >> shift;
+        let result = truncate(n, width);
         trace!("trunc result: {}", result);
         Ok(ConstValue::Scalar(Scalar::Bits {
             bits: result,
@@ -35,7 +34,15 @@ crate fn lit_to_const<'a, 'gcx, 'tcx>(
         LitKind::Str(ref s, _) => {
             let s = s.as_str();
             let id = tcx.allocate_bytes(s.as_bytes());
-            ConstValue::new_slice(Scalar::Ptr(id.into()), s.len() as u64, &tcx)
+            ConstValue::new_slice(Scalar::Ptr(id.into()), s.len() as u64)
+        },
+        LitKind::Err(ref s) => {
+            let s = s.as_str();
+            let id = tcx.allocate_bytes(s.as_bytes());
+            return Ok(ty::Const {
+                val: ConstValue::new_slice(Scalar::Ptr(id.into()), s.len() as u64),
+                ty: tcx.types.err,
+            });
         },
         LitKind::ByteStr(ref data) => {
             let id = tcx.allocate_bytes(data);
@@ -64,7 +71,7 @@ crate fn lit_to_const<'a, 'gcx, 'tcx>(
         LitKind::Bool(b) => ConstValue::Scalar(Scalar::from_bool(b)),
         LitKind::Char(c) => ConstValue::Scalar(Scalar::from_char(c)),
     };
-    Ok(ty::Const::from_const_value(tcx, lit, ty))
+    Ok(ty::Const { val: lit, ty })
 }
 
 fn parse_float<'tcx>(

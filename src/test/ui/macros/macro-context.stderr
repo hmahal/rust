@@ -1,7 +1,7 @@
 error: macro expansion ignores token `;` and any following
-  --> $DIR/macro-context.rs:13:15
+  --> $DIR/macro-context.rs:3:15
    |
-LL |     () => ( i ; typeof );   //~ ERROR expected expression, found reserved keyword `typeof`
+LL |     () => ( i ; typeof );
    |               ^
 ...
 LL |     let a: m!();
@@ -10,9 +10,9 @@ LL |     let a: m!();
    = note: the usage of `m!` is likely invalid in type context
 
 error: macro expansion ignores token `typeof` and any following
-  --> $DIR/macro-context.rs:13:17
+  --> $DIR/macro-context.rs:3:17
    |
-LL |     () => ( i ; typeof );   //~ ERROR expected expression, found reserved keyword `typeof`
+LL |     () => ( i ; typeof );
    |                 ^^^^^^
 ...
 LL |     let i = m!();
@@ -21,9 +21,9 @@ LL |     let i = m!();
    = note: the usage of `m!` is likely invalid in expression context
 
 error: macro expansion ignores token `;` and any following
-  --> $DIR/macro-context.rs:13:15
+  --> $DIR/macro-context.rs:3:15
    |
-LL |     () => ( i ; typeof );   //~ ERROR expected expression, found reserved keyword `typeof`
+LL |     () => ( i ; typeof );
    |               ^
 ...
 LL |         m!() => {}
@@ -32,9 +32,9 @@ LL |         m!() => {}
    = note: the usage of `m!` is likely invalid in pattern context
 
 error: expected expression, found reserved keyword `typeof`
-  --> $DIR/macro-context.rs:13:17
+  --> $DIR/macro-context.rs:3:17
    |
-LL |     () => ( i ; typeof );   //~ ERROR expected expression, found reserved keyword `typeof`
+LL |     () => ( i ; typeof );
    |                 ^^^^^^ expected expression
 ...
 LL |     m!();

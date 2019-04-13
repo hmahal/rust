@@ -1,9 +1,9 @@
 error[E0597]: `*a` does not live long enough
-  --> $DIR/destructor-restrictions.rs:18:10
+  --> $DIR/destructor-restrictions.rs:8:10
    |
 LL |         *a.borrow() + 1
    |          ^ borrowed value does not live long enough
-LL |     }; //~^ ERROR `*a` does not live long enough
+LL |     };
    |     -- borrowed value needs to live until here
    |     |
    |     `*a` dropped here while still borrowed

@@ -1,13 +1,3 @@
-// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Command-line interface of the rustbuild build system.
 //!
 //! This module implements the command-line parsing of the build system which
@@ -19,12 +9,12 @@ use std::process;
 
 use getopts::Options;
 
-use builder::Builder;
-use config::Config;
-use metadata;
-use {Build, DocTests};
+use crate::builder::Builder;
+use crate::config::Config;
+use crate::metadata;
+use crate::{Build, DocTests};
 
-use cache::{Interned, INTERNER};
+use crate::cache::{Interned, INTERNER};
 
 /// Deserialized version of all flags for this compile.
 pub struct Flags {
@@ -66,6 +56,7 @@ pub enum Subcommand {
         rustc_args: Vec<String>,
         fail_fast: bool,
         doc_tests: DocTests,
+        rustfix_coverage: bool,
     },
     Bench {
         paths: Vec<PathBuf>,
@@ -197,6 +188,12 @@ To learn more about a subcommand, run `./x.py <subcommand> -h`"
                     "compare-mode",
                     "mode describing what file the actual ui output will be compared to",
                     "COMPARE MODE",
+                );
+                opts.optflag(
+                    "",
+                    "rustfix-coverage",
+                    "enable this to generate a Rustfix coverage file, which is saved in \
+                        `/<build_base>/rustfix_missing_coverage.txt`",
                 );
             }
             "bench" => {
@@ -373,6 +370,7 @@ Arguments:
                 test_args: matches.opt_strs("test-args"),
                 rustc_args: matches.opt_strs("rustc-args"),
                 fail_fast: !matches.opt_present("no-fail-fast"),
+                rustfix_coverage: matches.opt_present("rustfix-coverage"),
                 doc_tests: if matches.opt_present("doc") {
                     DocTests::Only
                 } else if matches.opt_present("no-doc") {
@@ -473,6 +471,13 @@ impl Subcommand {
     pub fn bless(&self) -> bool {
         match *self {
             Subcommand::Test { bless, .. } => bless,
+            _ => false,
+        }
+    }
+
+    pub fn rustfix_coverage(&self) -> bool {
+        match *self {
+            Subcommand::Test { rustfix_coverage, .. } => rustfix_coverage,
             _ => false,
         }
     }

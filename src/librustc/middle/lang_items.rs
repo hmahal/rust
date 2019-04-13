@@ -1,13 +1,3 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 // Detecting language items.
 //
 // Language items are items that represent concepts intrinsic to the language
@@ -21,17 +11,18 @@
 
 pub use self::LangItem::*;
 
-use hir::def_id::DefId;
-use hir::check_attr::Target;
-use ty::{self, TyCtxt};
-use middle::weak_lang_items;
-use util::nodemap::FxHashMap;
+use crate::hir::def_id::DefId;
+use crate::hir::check_attr::Target;
+use crate::ty::{self, TyCtxt};
+use crate::middle::weak_lang_items;
+use crate::util::nodemap::FxHashMap;
 
 use syntax::ast;
 use syntax::symbol::Symbol;
 use syntax_pos::Span;
-use hir::itemlikevisit::ItemLikeVisitor;
-use hir;
+use rustc_macros::HashStable;
+use crate::hir::itemlikevisit::ItemLikeVisitor;
+use crate::hir;
 
 // The actual lang items defined come at the end of this file in one handy table.
 // So you probably just want to nip down to the end.
@@ -55,6 +46,7 @@ impl LangItem {
     }
 }
 
+#[derive(HashStable)]
 pub struct LanguageItems {
     pub items: Vec<Option<DefId>>,
     pub missing: Vec<LangItem>,
@@ -108,7 +100,7 @@ impl<'a, 'v, 'tcx> ItemLikeVisitor<'v> for LanguageItemCollector<'a, 'tcx> {
             match self.item_refs.get(&*value.as_str()).cloned() {
                 // Known lang item with attribute on correct target.
                 Some((item_index, expected_target)) if actual_target == expected_target => {
-                    let def_id = self.tcx.hir().local_def_id(item.id);
+                    let def_id = self.tcx.hir().local_def_id_from_hir_id(item.hir_id);
                     self.collect_item(item_index, def_id);
                 },
                 // Known lang item with attribute on incorrect target.
@@ -301,6 +293,7 @@ language_item_table! {
 
     DerefTraitLangItem,          "deref",              deref_trait,             Target::Trait;
     DerefMutTraitLangItem,       "deref_mut",          deref_mut_trait,         Target::Trait;
+    ReceiverTraitLangItem,       "receiver",           receiver_trait,          Target::Trait;
 
     FnTraitLangItem,             "fn",                 fn_trait,                Target::Trait;
     FnMutTraitLangItem,          "fn_mut",             fn_mut_trait,            Target::Trait;
@@ -308,6 +301,8 @@ language_item_table! {
 
     GeneratorStateLangItem,      "generator_state",    gen_state,               Target::Enum;
     GeneratorTraitLangItem,      "generator",          gen_trait,               Target::Trait;
+    UnpinTraitLangItem,          "unpin",              unpin_trait,             Target::Trait;
+    PinTypeLangItem,             "pin",                pin_type,                Target::Struct;
 
     EqTraitLangItem,             "eq",                 eq_trait,                Target::Trait;
     PartialOrdTraitLangItem,     "partial_ord",        partial_ord_trait,       Target::Trait;

@@ -1,15 +1,15 @@
 error[E0517]: attribute should be applied to struct
-  --> $DIR/repr-transparent-other-items.rs:13:8
+  --> $DIR/repr-transparent-other-items.rs:3:8
    |
-LL | #[repr(transparent)] //~ ERROR unsupported representation for zero-variant enum
+LL | #[repr(transparent)]
    |        ^^^^^^^^^^^
-LL | enum Void {}         //~| ERROR should be applied to struct
+LL | enum Void {}
    | ------------ not a struct
 
 error[E0517]: attribute should be applied to struct
-  --> $DIR/repr-transparent-other-items.rs:16:8
+  --> $DIR/repr-transparent-other-items.rs:6:8
    |
-LL |   #[repr(transparent)] //~ ERROR should be applied to struct
+LL |   #[repr(transparent)]
    |          ^^^^^^^^^^^
 LL | / enum FieldlessEnum {
 LL | |     Foo,
@@ -18,9 +18,9 @@ LL | | }
    | |_- not a struct
 
 error[E0517]: attribute should be applied to struct
-  --> $DIR/repr-transparent-other-items.rs:22:8
+  --> $DIR/repr-transparent-other-items.rs:12:8
    |
-LL |   #[repr(transparent)] //~ ERROR should be applied to struct
+LL |   #[repr(transparent)]
    |          ^^^^^^^^^^^
 LL | / enum Enum {
 LL | |     Foo(String),
@@ -29,9 +29,9 @@ LL | | }
    | |_- not a struct
 
 error[E0517]: attribute should be applied to struct
-  --> $DIR/repr-transparent-other-items.rs:28:8
+  --> $DIR/repr-transparent-other-items.rs:18:8
    |
-LL |   #[repr(transparent)] //~ ERROR should be applied to struct
+LL |   #[repr(transparent)]
    |          ^^^^^^^^^^^
 LL | / union Foo {
 LL | |     u: u32,
@@ -40,27 +40,27 @@ LL | | }
    | |_- not a struct
 
 error[E0517]: attribute should be applied to struct
-  --> $DIR/repr-transparent-other-items.rs:34:8
+  --> $DIR/repr-transparent-other-items.rs:24:8
    |
-LL | #[repr(transparent)] //~ ERROR should be applied to struct
+LL | #[repr(transparent)]
    |        ^^^^^^^^^^^
 LL | fn cant_repr_this() {}
    | ---------------------- not a struct
 
 error[E0517]: attribute should be applied to struct
-  --> $DIR/repr-transparent-other-items.rs:37:8
+  --> $DIR/repr-transparent-other-items.rs:27:8
    |
-LL | #[repr(transparent)] //~ ERROR should be applied to struct
+LL | #[repr(transparent)]
    |        ^^^^^^^^^^^
 LL | static CANT_REPR_THIS: u32 = 0;
    | ------------------------------- not a struct
 
 error[E0084]: unsupported representation for zero-variant enum
-  --> $DIR/repr-transparent-other-items.rs:13:1
+  --> $DIR/repr-transparent-other-items.rs:3:1
    |
-LL | #[repr(transparent)] //~ ERROR unsupported representation for zero-variant enum
+LL | #[repr(transparent)]
    | ^^^^^^^^^^^^^^^^^^^^
-LL | enum Void {}         //~| ERROR should be applied to struct
+LL | enum Void {}
    | ------------ zero-variant enum
 
 error: aborting due to 7 previous errors

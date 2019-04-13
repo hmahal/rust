@@ -1,14 +1,3 @@
-// Copyright 2016 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-
 //! This module manages how the incremental compilation cache is represented in
 //! the file system.
 //!
@@ -455,7 +444,7 @@ fn copy_files(sess: &Session,
     Ok(files_linked > 0 || files_copied == 0)
 }
 
-/// Generate unique directory path of the form:
+/// Generates unique directory path of the form:
 /// {crate_dir}/s-{timestamp}-{random-number}-working
 fn generate_session_dir_path(crate_dir: &Path) -> PathBuf {
     let timestamp = timestamp_to_string(SystemTime::now());
@@ -520,7 +509,7 @@ fn delete_session_dir_lock_file(sess: &Session,
     }
 }
 
-/// Find the most recent published session directory that is not in the
+/// Finds the most recent published session directory that is not in the
 /// ignore-list.
 fn find_source_directory(crate_dir: &Path,
                          source_directories_already_tried: &FxHashSet<PathBuf>)
@@ -897,7 +886,10 @@ fn safe_remove_dir_all(p: &Path) -> io::Result<()> {
 fn safe_remove_file(p: &Path) -> io::Result<()> {
     if p.exists() {
         let canonicalized = p.canonicalize()?;
-        std_fs::remove_file(canonicalized)
+        match std_fs::remove_file(canonicalized) {
+            Err(ref err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+            result => result,
+        }
     } else {
         Ok(())
     }

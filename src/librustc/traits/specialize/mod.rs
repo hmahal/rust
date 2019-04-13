@@ -1,13 +1,3 @@
-// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Logic and data structures related to impl specialization, explained in
 //! greater detail below.
 //!
@@ -21,26 +11,27 @@
 
 pub mod specialization_graph;
 
-use hir::def_id::DefId;
-use infer::{InferCtxt, InferOk};
-use lint;
+use crate::hir::def_id::DefId;
+use crate::infer::{InferCtxt, InferOk};
+use crate::lint;
+use crate::traits::{self, coherence, FutureCompatOverlapErrorKind, ObligationCause, TraitEngine};
 use rustc_data_structures::fx::FxHashSet;
-use rustc_data_structures::sync::Lrc;
 use syntax_pos::DUMMY_SP;
-use traits::{self, ObligationCause, TraitEngine};
-use traits::select::IntercrateAmbiguityCause;
-use ty::{self, TyCtxt, TypeFoldable};
-use ty::subst::{Subst, Substs};
+use crate::traits::select::IntercrateAmbiguityCause;
+use crate::ty::{self, TyCtxt, TypeFoldable};
+use crate::ty::subst::{Subst, InternalSubsts, SubstsRef};
 
 use super::{SelectionContext, FulfillmentContext};
 use super::util::impl_trait_ref_and_oblig;
 
 /// Information pertinent to an overlapping impl error.
+#[derive(Debug)]
 pub struct OverlapError {
     pub with_impl: DefId,
     pub trait_desc: String,
     pub self_desc: Option<String>,
     pub intercrate_ambiguity_causes: Vec<IntercrateAmbiguityCause>,
+    pub involves_placeholder: bool,
 }
 
 /// Given a subst for the requested impl, translate it to a subst
@@ -66,12 +57,12 @@ pub struct OverlapError {
 /// Suppose we have selected "source impl" with `V` instantiated with `u32`.
 /// This function will produce a substitution with `T` and `U` both mapping to `u32`.
 ///
-/// Where clauses add some trickiness here, because they can be used to "define"
+/// where-clauses add some trickiness here, because they can be used to "define"
 /// an argument indirectly:
 ///
 /// ```rust
 /// impl<'a, I, T: 'a> Iterator for Cloned<I>
-///    where I: Iterator<Item=&'a T>, T: Clone
+///    where I: Iterator<Item = &'a T>, T: Clone
 /// ```
 ///
 /// In a case like this, the substitution for `T` is determined indirectly,
@@ -81,9 +72,9 @@ pub struct OverlapError {
 pub fn translate_substs<'a, 'gcx, 'tcx>(infcx: &InferCtxt<'a, 'gcx, 'tcx>,
                                         param_env: ty::ParamEnv<'tcx>,
                                         source_impl: DefId,
-                                        source_substs: &'tcx Substs<'tcx>,
+                                        source_substs: SubstsRef<'tcx>,
                                         target_node: specialization_graph::Node)
-                                        -> &'tcx Substs<'tcx> {
+                                        -> SubstsRef<'tcx> {
     debug!("translate_substs({:?}, {:?}, {:?}, {:?})",
            param_env, source_impl, source_substs, target_node);
     let source_trait_ref = infcx.tcx
@@ -122,9 +113,9 @@ pub fn find_associated_item<'a, 'tcx>(
     tcx: TyCtxt<'a, 'tcx, 'tcx>,
     param_env: ty::ParamEnv<'tcx>,
     item: &ty::AssociatedItem,
-    substs: &'tcx Substs<'tcx>,
+    substs: SubstsRef<'tcx>,
     impl_data: &super::VtableImplData<'tcx, ()>,
-) -> (DefId, &'tcx Substs<'tcx>) {
+) -> (DefId, SubstsRef<'tcx>) {
     debug!("find_associated_item({:?}, {:?}, {:?}, {:?})",
            param_env, item, substs, impl_data);
     assert!(!substs.needs_infer());
@@ -153,10 +144,10 @@ pub fn find_associated_item<'a, 'tcx>(
     }
 }
 
-/// Is impl1 a specialization of impl2?
+/// Is `impl1` a specialization of `impl2`?
 ///
 /// Specialization is determined by the sets of types to which the impls apply;
-/// impl1 specializes impl2 if it applies to a subset of the types impl2 applies
+/// `impl1` specializes `impl2` if it applies to a subset of the types `impl2` applies
 /// to.
 pub(super) fn specializes<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
                                     (impl1_def_id, impl2_def_id): (DefId, DefId))
@@ -222,7 +213,7 @@ fn fulfill_implication<'a, 'gcx, 'tcx>(infcx: &InferCtxt<'a, 'gcx, 'tcx>,
                                        param_env: ty::ParamEnv<'tcx>,
                                        source_trait_ref: ty::TraitRef<'tcx>,
                                        target_impl: DefId)
-                                       -> Result<&'tcx Substs<'tcx>, ()> {
+                                       -> Result<SubstsRef<'tcx>, ()> {
     debug!("fulfill_implication({:?}, trait_ref={:?} |- {:?} applies)",
            param_env, source_trait_ref, target_impl);
 
@@ -297,7 +288,7 @@ fn fulfill_implication<'a, 'gcx, 'tcx>(infcx: &InferCtxt<'a, 'gcx, 'tcx>,
 pub(super) fn specialization_graph_provider<'a, 'tcx>(
     tcx: TyCtxt<'a, 'tcx, 'tcx>,
     trait_id: DefId,
-) -> Lrc<specialization_graph::Graph> {
+) -> &'tcx specialization_graph::Graph {
     let mut sg = specialization_graph::Graph::new();
 
     let mut trait_impls = tcx.all_impls(trait_id);
@@ -318,8 +309,9 @@ pub(super) fn specialization_graph_provider<'a, 'tcx>(
             let insert_result = sg.insert(tcx, impl_def_id);
             // Report error if there was one.
             let (overlap, used_to_be_allowed) = match insert_result {
-                Err(overlap) => (Some(overlap), false),
-                Ok(opt_overlap) => (opt_overlap, true)
+                Err(overlap) => (Some(overlap), None),
+                Ok(Some(overlap)) => (Some(overlap.error), Some(overlap.kind)),
+                Ok(None) => (None, None)
             };
 
             if let Some(overlap) = overlap {
@@ -329,15 +321,21 @@ pub(super) fn specialization_graph_provider<'a, 'tcx>(
                         String::new(), |ty| {
                             format!(" for type `{}`", ty)
                         }),
-                    if used_to_be_allowed { " (E0119)" } else { "" }
+                    if used_to_be_allowed.is_some() { " (E0119)" } else { "" }
                 );
                 let impl_span = tcx.sess.source_map().def_span(
                     tcx.span_of_impl(impl_def_id).unwrap()
                 );
-                let mut err = if used_to_be_allowed {
-                    tcx.struct_span_lint_node(
-                        lint::builtin::INCOHERENT_FUNDAMENTAL_IMPLS,
-                        tcx.hir().as_local_node_id(impl_def_id).unwrap(),
+                let mut err = if let Some(kind) = used_to_be_allowed {
+                    let lint = match kind {
+                        FutureCompatOverlapErrorKind::Issue43355 =>
+                            lint::builtin::INCOHERENT_FUNDAMENTAL_IMPLS,
+                        FutureCompatOverlapErrorKind::Issue33140 =>
+                            lint::builtin::ORDER_DEPENDENT_TRAIT_OBJECTS,
+                    };
+                    tcx.struct_span_lint_hir(
+                        lint,
+                        tcx.hir().as_local_hir_id(impl_def_id).unwrap(),
                         impl_span,
                         &msg)
                 } else {
@@ -372,6 +370,10 @@ pub(super) fn specialization_graph_provider<'a, 'tcx>(
                     cause.add_intercrate_ambiguity_hint(&mut err);
                 }
 
+                if overlap.involves_placeholder {
+                    coherence::add_placeholder_note(&mut err);
+                }
+
                 err.emit();
             }
         } else {
@@ -380,7 +382,7 @@ pub(super) fn specialization_graph_provider<'a, 'tcx>(
         }
     }
 
-    Lrc::new(sg)
+    tcx.arena.alloc(sg)
 }
 
 /// Recovers the "impl X for Y" signature from `impl_def_id` and returns it as a
@@ -396,7 +398,7 @@ fn to_pretty_impl_header(tcx: TyCtxt<'_, '_, '_>, impl_def_id: DefId) -> Option<
 
     let mut w = "impl".to_owned();
 
-    let substs = Substs::identity_for_item(tcx, impl_def_id);
+    let substs = InternalSubsts::identity_for_item(tcx, impl_def_id);
 
     // FIXME: Currently only handles ?Sized.
     //        Needs to support ?Move and ?DynSized when they are implemented.
@@ -408,7 +410,7 @@ fn to_pretty_impl_header(tcx: TyCtxt<'_, '_, '_>, impl_def_id: DefId) -> Option<
         w.push('<');
         w.push_str(&substs.iter()
             .map(|k| k.to_string())
-            .filter(|k| &k[..] != "'_")
+            .filter(|k| k != "'_")
             .collect::<Vec<_>>().join(", "));
         w.push('>');
     }

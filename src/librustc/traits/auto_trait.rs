@@ -1,13 +1,3 @@
-// Copyright 2018 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Support code for rustdoc and external tools . You really don't
 //! want to be using this unless you need to.
 
@@ -16,12 +6,12 @@ use super::*;
 use std::collections::hash_map::Entry;
 use std::collections::VecDeque;
 
-use infer::region_constraints::{Constraint, RegionConstraintData};
-use infer::InferCtxt;
+use crate::infer::region_constraints::{Constraint, RegionConstraintData};
+use crate::infer::InferCtxt;
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 
-use ty::fold::TypeFolder;
-use ty::{Region, RegionVid};
+use crate::ty::fold::TypeFolder;
+use crate::ty::{Region, RegionVid};
 
 // FIXME(twk): this is obviously not nice to duplicate like that
 #[derive(Eq, PartialEq, Hash, Copy, Clone, Debug)]
@@ -67,7 +57,7 @@ impl<'a, 'tcx> AutoTraitFinder<'a, 'tcx> {
         AutoTraitFinder { tcx }
     }
 
-    /// Make a best effort to determine whether and under which conditions an auto trait is
+    /// Makes a best effort to determine whether and under which conditions an auto trait is
     /// implemented for a type. For example, if you have
     ///
     /// ```
@@ -212,7 +202,7 @@ impl<'a, 'tcx> AutoTraitFinder<'a, 'tcx> {
                 full_env,
                 ty,
                 trait_did,
-                ObligationCause::misc(DUMMY_SP, ast::DUMMY_NODE_ID),
+                ObligationCause::misc(DUMMY_SP, hir::DUMMY_HIR_ID),
             );
             fulfill.select_all_or_error(&infcx).unwrap_or_else(|e| {
                 panic!(
@@ -325,7 +315,7 @@ impl<'a, 'tcx> AutoTraitFinder<'a, 'tcx> {
             user_env.caller_bounds.iter().cloned().collect();
 
         let mut new_env = param_env.clone();
-        let dummy_cause = ObligationCause::misc(DUMMY_SP, ast::DUMMY_NODE_ID);
+        let dummy_cause = ObligationCause::misc(DUMMY_SP, hir::DUMMY_HIR_ID);
 
         while let Some(pred) = predicates.pop_front() {
             infcx.clear_caches();
@@ -398,12 +388,17 @@ impl<'a, 'tcx> AutoTraitFinder<'a, 'tcx> {
             computed_preds.extend(user_computed_preds.iter().cloned());
             let normalized_preds =
                 elaborate_predicates(tcx, computed_preds.clone().into_iter().collect());
-            new_env = ty::ParamEnv::new(tcx.mk_predicates(normalized_preds), param_env.reveal);
+            new_env = ty::ParamEnv::new(
+                tcx.mk_predicates(normalized_preds),
+                param_env.reveal,
+                None
+            );
         }
 
         let final_user_env = ty::ParamEnv::new(
             tcx.mk_predicates(user_computed_preds.into_iter()),
             user_env.reveal,
+            None
         );
         debug!(
             "evaluate_nested_obligations(ty_did={:?}, trait_did={:?}): succeeded with '{:?}' \
@@ -636,7 +631,7 @@ impl<'a, 'tcx> AutoTraitFinder<'a, 'tcx> {
         finished_map
     }
 
-    fn is_param_no_infer(&self, substs: &Substs<'_>) -> bool {
+    fn is_param_no_infer(&self, substs: SubstsRef<'_>) -> bool {
         return self.is_of_param(substs.type_at(0)) &&
             !substs.types().any(|t| t.has_infer_types());
     }
@@ -674,7 +669,7 @@ impl<'a, 'tcx> AutoTraitFinder<'a, 'tcx> {
         select: &mut SelectionContext<'c, 'd, 'cx>,
         only_projections: bool,
     ) -> bool {
-        let dummy_cause = ObligationCause::misc(DUMMY_SP, ast::DUMMY_NODE_ID);
+        let dummy_cause = ObligationCause::misc(DUMMY_SP, hir::DUMMY_HIR_ID);
 
         for (obligation, mut predicate) in nested
             .map(|o| (o.clone(), o.predicate.clone()))
@@ -742,9 +737,9 @@ impl<'a, 'tcx> AutoTraitFinder<'a, 'tcx> {
                     }
 
                     // We can only call poly_project_and_unify_type when our predicate's
-                    // Ty is an inference variable - otherwise, there won't be anything to
+                    // Ty contains an inference variable - otherwise, there won't be anything to
                     // unify
-                    if p.ty().skip_binder().is_ty_infer() {
+                    if p.ty().skip_binder().has_infer_types() {
                         debug!("Projecting and unifying projection predicate {:?}",
                                predicate);
                         match poly_project_and_unify_type(select, &obligation.with(p.clone())) {

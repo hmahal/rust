@@ -1,16 +1,5 @@
-// Copyright 2018 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 use syntax_pos::{BytePos, Span};
 use rustc::hir::def_id::CrateNum;
-use std::cell::Cell;
 
 pub enum FunctionDebugContext<D> {
     RegularContext(FunctionDebugContextData<D>),
@@ -46,10 +35,10 @@ impl<D> FunctionDebugContext<D> {
 /// they are disabled when beginning to codegen a new function. This functions
 /// switches source location emitting on and must therefore be called before the
 /// first real statement/expression of the function is codegened.
-pub fn start_emitting_source_locations<D>(dbg_context: &FunctionDebugContext<D>) {
+pub fn start_emitting_source_locations<D>(dbg_context: &mut FunctionDebugContext<D>) {
     match *dbg_context {
-        FunctionDebugContext::RegularContext(ref data) => {
-            data.source_locations_enabled.set(true)
+        FunctionDebugContext::RegularContext(ref mut data) => {
+            data.source_locations_enabled = true;
         },
         _ => { /* safe to ignore */ }
     }
@@ -57,7 +46,7 @@ pub fn start_emitting_source_locations<D>(dbg_context: &FunctionDebugContext<D>)
 
 pub struct FunctionDebugContextData<D> {
     pub fn_metadata: D,
-    pub source_locations_enabled: Cell<bool>,
+    pub source_locations_enabled: bool,
     pub defining_crate: CrateNum,
 }
 

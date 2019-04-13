@@ -1,15 +1,5 @@
-// Copyright 2017 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-use borrow_check::nll::constraints::OutlivesConstraint;
-use borrow_check::nll::type_check::{BorrowCheckContext, Locations};
+use crate::borrow_check::nll::constraints::OutlivesConstraint;
+use crate::borrow_check::nll::type_check::{BorrowCheckContext, Locations};
 use rustc::infer::nll_relate::{TypeRelating, TypeRelatingDelegate, NormalizationStrategy};
 use rustc::infer::{InferCtxt, NLLRegionVariableOrigin};
 use rustc::mir::ConstraintCategory;
@@ -24,7 +14,7 @@ use rustc::ty::{self, Ty};
 /// - "Invariant" `a == b`
 /// - "Contravariant" `a :> b`
 ///
-/// NB. The type `a` is permitted to have unresolved inference
+/// N.B., the type `a` is permitted to have unresolved inference
 /// variables, but not the type `b`.
 pub(super) fn relate_types<'tcx>(
     infcx: &InferCtxt<'_, '_, 'tcx>,

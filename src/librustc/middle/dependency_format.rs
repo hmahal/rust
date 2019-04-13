@@ -1,13 +1,3 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Resolution of mixing rlibs and dylibs
 //!
 //! When producing a final artifact, such as a dynamic library, the compiler has
@@ -61,13 +51,13 @@
 //! Additionally, the algorithm is geared towards finding *any* solution rather
 //! than finding a number of solutions (there are normally quite a few).
 
-use hir::def_id::CrateNum;
+use crate::hir::def_id::CrateNum;
 
-use session::config;
-use ty::TyCtxt;
-use middle::cstore::{self, DepKind};
-use middle::cstore::LinkagePreference::{self, RequireStatic, RequireDynamic};
-use util::nodemap::FxHashMap;
+use crate::session::config;
+use crate::ty::TyCtxt;
+use crate::middle::cstore::{self, DepKind};
+use crate::middle::cstore::LinkagePreference::{self, RequireStatic, RequireDynamic};
+use crate::util::nodemap::FxHashMap;
 use rustc_target::spec::PanicStrategy;
 
 /// A list of dependencies for a certain crate type.

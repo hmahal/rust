@@ -1,29 +1,23 @@
-// Copyright 2018 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
+#![cfg_attr(test, allow(unused))] // RT initialization logic is not compiled for test
 
 use core::sync::atomic::{AtomicUsize, Ordering};
-use io::Write;
+use crate::io::Write;
 
 // runtime features
 mod reloc;
-mod mem;
 pub(super) mod panic;
 
 // library features
+pub mod mem;
 pub mod thread;
 pub mod tls;
 #[macro_use]
 pub mod usercalls;
 
-global_asm!(concat!(usercalls_asm!(), include_str!("entry.S")));
+#[cfg(not(test))]
+global_asm!(include_str!("entry.S"));
 
+#[cfg(not(test))]
 #[no_mangle]
 unsafe extern "C" fn tcs_init(secondary: bool) {
     // Be very careful when changing this code: it runs before the binary has been
@@ -47,7 +41,7 @@ unsafe extern "C" fn tcs_init(secondary: bool) {
         },
         // We need to wait until the initialization is done.
         BUSY => while RELOC_STATE.load(Ordering::Acquire) == BUSY  {
-            ::core::arch::x86_64::_mm_pause()
+            core::arch::x86_64::_mm_pause()
         },
         // Initialization is done.
         DONE => {},
@@ -58,6 +52,7 @@ unsafe extern "C" fn tcs_init(secondary: bool) {
 // FIXME: this item should only exist if this is linked into an executable
 // (main function exists). If this is a library, the crate author should be
 // able to specify this
+#[cfg(not(test))]
 #[no_mangle]
 extern "C" fn entry(p1: u64, p2: u64, p3: u64, secondary: bool, p4: u64, p5: u64) -> (u64, u64) {
     // FIXME: how to support TLS in library mode?
@@ -74,9 +69,9 @@ extern "C" fn entry(p1: u64, p2: u64, p3: u64, secondary: bool, p4: u64, p5: u64
         }
 
         // check entry is being called according to ABI
-        assert_eq!(p3, 0);
-        assert_eq!(p4, 0);
-        assert_eq!(p5, 0);
+        rtassert!(p3 == 0);
+        rtassert!(p4 == 0);
+        rtassert!(p5 == 0);
 
         unsafe {
             // The actual types of these arguments are `p1: *const Arg, p2:

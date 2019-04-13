@@ -1,23 +1,12 @@
-// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Unix-specific extensions to general I/O primitives
 
 #![stable(feature = "rust1", since = "1.0.0")]
 
-use fs;
-use os::raw;
-use sys;
-use io;
-use sys_common::{AsInner, FromInner, IntoInner};
-use libc;
+use crate::fs;
+use crate::os::raw;
+use crate::sys;
+use crate::io;
+use crate::sys_common::{AsInner, FromInner, IntoInner};
 
 /// Raw file descriptors.
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -104,5 +93,20 @@ impl AsRawFd for io::Stdout {
 
 #[stable(feature = "asraw_stdio", since = "1.21.0")]
 impl AsRawFd for io::Stderr {
+    fn as_raw_fd(&self) -> RawFd { libc::STDERR_FILENO }
+}
+
+#[stable(feature = "asraw_stdio_locks", since = "1.35.0")]
+impl<'a> AsRawFd for io::StdinLock<'a> {
+    fn as_raw_fd(&self) -> RawFd { libc::STDIN_FILENO }
+}
+
+#[stable(feature = "asraw_stdio_locks", since = "1.35.0")]
+impl<'a> AsRawFd for io::StdoutLock<'a> {
+    fn as_raw_fd(&self) -> RawFd { libc::STDOUT_FILENO }
+}
+
+#[stable(feature = "asraw_stdio_locks", since = "1.35.0")]
+impl<'a> AsRawFd for io::StderrLock<'a> {
     fn as_raw_fd(&self) -> RawFd { libc::STDERR_FILENO }
 }

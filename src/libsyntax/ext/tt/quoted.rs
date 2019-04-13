@@ -1,23 +1,14 @@
-// Copyright 2017 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
+use crate::ast::NodeId;
+use crate::early_buffered_lints::BufferedEarlyLintId;
+use crate::ext::tt::macro_parser;
+use crate::feature_gate::Features;
+use crate::parse::{token, ParseSess};
+use crate::print::pprust;
+use crate::tokenstream::{self, DelimSpan};
+use crate::ast;
+use crate::symbol::keywords;
 
-use ast::NodeId;
-use early_buffered_lints::BufferedEarlyLintId;
-use ext::tt::macro_parser;
-use feature_gate::Features;
-use parse::{token, ParseSess};
-use print::pprust;
-use symbol::keywords;
 use syntax_pos::{edition::Edition, BytePos, Span};
-use tokenstream::{self, DelimSpan};
-use ast;
 
 use rustc_data_structures::sync::Lrc;
 use std::iter::Peekable;
@@ -31,17 +22,17 @@ pub struct Delimited {
 }
 
 impl Delimited {
-    /// Return the opening delimiter (possibly `NoDelim`).
+    /// Returns the opening delimiter (possibly `NoDelim`).
     pub fn open_token(&self) -> token::Token {
         token::OpenDelim(self.delim)
     }
 
-    /// Return the closing delimiter (possibly `NoDelim`).
+    /// Returns the closing delimiter (possibly `NoDelim`).
     pub fn close_token(&self) -> token::Token {
         token::CloseDelim(self.delim)
     }
 
-    /// Return a `self::TokenTree` with a `Span` corresponding to the opening delimiter.
+    /// Returns a `self::TokenTree` with a `Span` corresponding to the opening delimiter.
     pub fn open_tt(&self, span: Span) -> TokenTree {
         let open_span = if span.is_dummy() {
             span
@@ -51,7 +42,7 @@ impl Delimited {
         TokenTree::Token(open_span, self.open_token())
     }
 
-    /// Return a `self::TokenTree` with a `Span` corresponding to the closing delimiter.
+    /// Returns a `self::TokenTree` with a `Span` corresponding to the closing delimiter.
     pub fn close_tt(&self, span: Span) -> TokenTree {
         let close_span = if span.is_dummy() {
             span
@@ -116,7 +107,7 @@ impl TokenTree {
         }
     }
 
-    /// Returns true if the given token tree contains no other tokens. This is vacuously true for
+    /// Returns `true` if the given token tree contains no other tokens. This is vacuously true for
     /// single tokens or metavar/decls, but may be false for delimited trees or sequences.
     pub fn is_empty(&self) -> bool {
         match *self {
@@ -129,7 +120,7 @@ impl TokenTree {
         }
     }
 
-    /// Get the `index`-th sub-token-tree. This only makes sense for delimited trees and sequences.
+    /// Gets the `index`-th sub-token-tree. This only makes sense for delimited trees and sequences.
     pub fn get_tt(&self, index: usize) -> TokenTree {
         match (self, index) {
             (&TokenTree::Delimited(_, ref delimed), _) if delimed.delim == token::NoDelim => {
@@ -149,7 +140,7 @@ impl TokenTree {
         }
     }
 
-    /// Retrieve the `TokenTree`'s span.
+    /// Retrieves the `TokenTree`'s span.
     pub fn span(&self) -> Span {
         match *self {
             TokenTree::Token(sp, _)
@@ -280,17 +271,17 @@ where
         // `tree` is a `$` token. Look at the next token in `trees`
         tokenstream::TokenTree::Token(span, token::Dollar) => match trees.next() {
             // `tree` is followed by a delimited set of token trees. This indicates the beginning
-            // of a repetition sequence in the macro (e.g., `$(pat)*`).
-            Some(tokenstream::TokenTree::Delimited(span, delimited)) => {
+            // of a repetition sequence in the macro (e.g. `$(pat)*`).
+            Some(tokenstream::TokenTree::Delimited(span, delim, tts)) => {
                 // Must have `(` not `{` or `[`
-                if delimited.delim != token::Paren {
-                    let tok = pprust::token_to_string(&token::OpenDelim(delimited.delim));
+                if delim != token::Paren {
+                    let tok = pprust::token_to_string(&token::OpenDelim(delim));
                     let msg = format!("expected `(`, found `{}`", tok);
                     sess.span_diagnostic.span_err(span.entire(), &msg);
                 }
                 // Parse the contents of the sequence itself
                 let sequence = parse(
-                    delimited.tts.into(),
+                    tts.into(),
                     expect_matchers,
                     sess,
                     features,
@@ -354,12 +345,12 @@ where
 
         // `tree` is the beginning of a delimited set of tokens (e.g., `(` or `{`). We need to
         // descend into the delimited set and further parse it.
-        tokenstream::TokenTree::Delimited(span, delimited) => TokenTree::Delimited(
+        tokenstream::TokenTree::Delimited(span, delim, tts) => TokenTree::Delimited(
             span,
             Lrc::new(Delimited {
-                delim: delimited.delim,
+                delim: delim,
                 tts: parse(
-                    delimited.tts.into(),
+                    tts.into(),
                     expect_matchers,
                     sess,
                     features,
@@ -420,8 +411,8 @@ where
 /// operator and separator, then a tuple with `(separator, KleeneOp)` is returned. Otherwise, an
 /// error with the appropriate span is emitted to `sess` and a dummy value is returned.
 ///
-/// NOTE: In 2015 edition, * and + are the only Kleene operators and `?` is a separator. In 2018,
-/// `?` is a Kleene op and not a separator.
+/// N.B., in the 2015 edition, `*` and `+` are the only Kleene operators, and `?` is a separator.
+/// In the 2018 edition however, `?` is a Kleene operator, and not a separator.
 fn parse_sep_and_kleene_op<I>(
     input: &mut Peekable<I>,
     span: Span,
@@ -484,11 +475,13 @@ where
                 // #1 is a separator and #2 should be a KleepeOp.
                 // (N.B. We need to advance the input iterator.)
                 match parse_kleene_op(input, span) {
-                    // #2 is `?`, which is not allowed as a Kleene op in 2015 edition.
+                    // #2 is `?`, which is not allowed as a Kleene op in 2015 edition,
+                    // but is allowed in the 2018 edition.
                     Ok(Ok((op, op2_span))) if op == KleeneOp::ZeroOrOne => {
                         sess.span_diagnostic
                             .struct_span_err(op2_span, "expected `*` or `+`")
-                            .note("`?` is not a macro repetition operator")
+                            .note("`?` is not a macro repetition operator in the 2015 edition, \
+                                 but is accepted in the 2018 edition")
                             .emit();
 
                         // Return a dummy
@@ -516,10 +509,12 @@ where
                     Err(_) => op1_span,
                 }
             } else {
-                // `?` is not allowed as a Kleene op in 2015
+                // `?` is not allowed as a Kleene op in 2015,
+                // but is allowed in the 2018 edition
                 sess.span_diagnostic
                     .struct_span_err(op1_span, "expected `*` or `+`")
-                    .note("`?` is not a macro repetition operator")
+                    .note("`?` is not a macro repetition operator in the 2015 edition, \
+                         but is accepted in the 2018 edition")
                     .emit();
 
                 // Return a dummy
@@ -529,11 +524,13 @@ where
 
         // #1 is a separator followed by #2, a KleeneOp
         Ok(Err((tok, span))) => match parse_kleene_op(input, span) {
-            // #2 is a `?`, which is not allowed as a Kleene op in 2015 edition.
+            // #2 is a `?`, which is not allowed as a Kleene op in 2015 edition,
+            // but is allowed in the 2018 edition
             Ok(Ok((op, op2_span))) if op == KleeneOp::ZeroOrOne => {
                 sess.span_diagnostic
                     .struct_span_err(op2_span, "expected `*` or `+`")
-                    .note("`?` is not a macro repetition operator")
+                    .note("`?` is not a macro repetition operator in the 2015 edition, \
+                        but is accepted in the 2018 edition")
                     .emit();
 
                 // Return a dummy

@@ -1,20 +1,10 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-use hir;
-use hir::def_id::DefId;
-use traits::specialize::specialization_graph::NodeItem;
-use ty::{self, Ty, TyCtxt, ToPredicate, ToPolyTraitRef};
-use ty::outlives::Component;
-use ty::subst::{Kind, Subst, Substs};
-use util::nodemap::FxHashSet;
+use crate::hir;
+use crate::hir::def_id::DefId;
+use crate::traits::specialize::specialization_graph::NodeItem;
+use crate::ty::{self, Ty, TyCtxt, ToPredicate, ToPolyTraitRef};
+use crate::ty::outlives::Component;
+use crate::ty::subst::{Kind, Subst, SubstsRef};
+use crate::util::nodemap::FxHashSet;
 
 use super::{Obligation, ObligationCause, PredicateObligation, SelectionContext, Normalized};
 
@@ -302,11 +292,7 @@ impl<'cx, 'gcx, 'tcx> Iterator for SupertraitDefIds<'cx, 'gcx, 'tcx> {
     type Item = DefId;
 
     fn next(&mut self) -> Option<DefId> {
-        let def_id = match self.stack.pop() {
-            Some(def_id) => def_id,
-            None => { return None; }
-        };
-
+        let def_id = self.stack.pop()?;
         let predicates = self.tcx.super_predicates_of(def_id);
         let visited = &mut self.visited;
         self.stack.extend(
@@ -368,7 +354,7 @@ impl<'tcx, I: Iterator<Item = ty::Predicate<'tcx>>> Iterator for FilterToTraits<
 pub fn impl_trait_ref_and_oblig<'a, 'gcx, 'tcx>(selcx: &mut SelectionContext<'a, 'gcx, 'tcx>,
                                                 param_env: ty::ParamEnv<'tcx>,
                                                 impl_def_id: DefId,
-                                                impl_substs: &Substs<'tcx>)
+                                                impl_substs: SubstsRef<'tcx>,)
                                                 -> (ty::TraitRef<'tcx>,
                                                     Vec<PredicateObligation<'tcx>>)
 {
@@ -535,9 +521,9 @@ impl<'a, 'gcx, 'tcx> TyCtxt<'a, 'gcx, 'tcx> {
     }
 
     pub fn impl_is_default(self, node_item_def_id: DefId) -> bool {
-        match self.hir().as_local_node_id(node_item_def_id) {
-            Some(node_id) => {
-                let item = self.hir().expect_item(node_id);
+        match self.hir().as_local_hir_id(node_item_def_id) {
+            Some(hir_id) => {
+                let item = self.hir().expect_item_by_hir_id(hir_id);
                 if let hir::ItemKind::Impl(_, _, defaultness, ..) = item.node {
                     defaultness.is_default()
                 } else {

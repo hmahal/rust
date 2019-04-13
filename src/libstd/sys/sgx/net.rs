@@ -1,43 +1,67 @@
-// Copyright 2018 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-use fmt;
-use io;
-use net::{SocketAddr, Shutdown, Ipv4Addr, Ipv6Addr, ToSocketAddrs};
-use time::Duration;
-use sys::{unsupported, Void, sgx_ineffective};
-use sys::fd::FileDesc;
-use convert::TryFrom;
-use error;
-use sync::Arc;
+use crate::fmt;
+use crate::io::{self, IoVec, IoVecMut};
+use crate::net::{SocketAddr, Shutdown, Ipv4Addr, Ipv6Addr, ToSocketAddrs};
+use crate::time::Duration;
+use crate::sys::{unsupported, Void, sgx_ineffective, AsInner, FromInner, IntoInner, TryIntoInner};
+use crate::sys::fd::FileDesc;
+use crate::convert::TryFrom;
+use crate::error;
+use crate::sync::Arc;
 
 use super::abi::usercalls;
 
 const DEFAULT_FAKE_TTL: u32 = 64;
 
 #[derive(Debug, Clone)]
-struct Socket {
+pub struct Socket {
     inner: Arc<FileDesc>,
-    local_addr: String,
+    local_addr: Option<String>,
 }
 
 impl Socket {
-    fn new(fd: usercalls::Fd, local_addr: String) -> Socket {
-        Socket { inner: Arc::new(FileDesc::new(fd)), local_addr }
+    fn new(fd: usercalls::raw::Fd, local_addr: String) -> Socket {
+        Socket { inner: Arc::new(FileDesc::new(fd)), local_addr: Some(local_addr) }
     }
 }
 
-#[derive(Debug, Clone)]
+impl AsInner<FileDesc> for Socket {
+    fn as_inner(&self) -> &FileDesc { &self.inner }
+}
+
+impl TryIntoInner<FileDesc> for Socket {
+    fn try_into_inner(self) -> Result<FileDesc, Socket> {
+        let Socket { inner, local_addr } = self;
+        Arc::try_unwrap(inner).map_err(|inner| Socket { inner, local_addr } )
+    }
+}
+
+impl FromInner<FileDesc> for Socket {
+    fn from_inner(inner: FileDesc) -> Socket {
+        Socket { inner: Arc::new(inner), local_addr: None }
+    }
+}
+
+#[derive(Clone)]
 pub struct TcpStream {
     inner: Socket,
-    peer_addr: String,
+    peer_addr: Option<String>,
+}
+
+impl fmt::Debug for TcpStream {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut res = f.debug_struct("TcpStream");
+
+        if let Some(ref addr) = self.inner.local_addr {
+            res.field("addr", addr);
+        }
+
+        if let Some(ref peer) = self.peer_addr {
+            res.field("peer", peer);
+        }
+
+        res.field("fd", &self.inner.inner.as_inner())
+            .finish()
+    }
 }
 
 fn io_err_to_addr(result: io::Result<&SocketAddr>) -> io::Result<String> {
@@ -53,28 +77,47 @@ fn io_err_to_addr(result: io::Result<&SocketAddr>) -> io::Result<String> {
     }
 }
 
-fn addr_to_sockaddr(addr: &str) -> io::Result<SocketAddr> {
-    // unwrap OK: if an iterator is returned, we're guaranteed to get exactly one entry
-    addr.to_socket_addrs().map(|mut it| it.next().unwrap())
+fn addr_to_sockaddr(addr: &Option<String>) -> io::Result<SocketAddr> {
+    addr.as_ref()
+        .ok_or(io::ErrorKind::AddrNotAvailable)?
+        .to_socket_addrs()
+        // unwrap OK: if an iterator is returned, we're guaranteed to get exactly one entry
+        .map(|mut it| it.next().unwrap())
 }
 
 impl TcpStream {
     pub fn connect(addr: io::Result<&SocketAddr>) -> io::Result<TcpStream> {
         let addr = io_err_to_addr(addr)?;
         let (fd, local_addr, peer_addr) = usercalls::connect_stream(&addr)?;
-        Ok(TcpStream { inner: Socket::new(fd, local_addr), peer_addr })
+        Ok(TcpStream { inner: Socket::new(fd, local_addr), peer_addr: Some(peer_addr) })
     }
 
-    pub fn connect_timeout(addr: &SocketAddr, _: Duration) -> io::Result<TcpStream> {
+    pub fn connect_timeout(addr: &SocketAddr, dur: Duration) -> io::Result<TcpStream> {
+        if dur == Duration::default() {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput,
+                                      "cannot set a 0 duration timeout"));
+        }
         Self::connect(Ok(addr)) // FIXME: ignoring timeout
     }
 
-    pub fn set_read_timeout(&self, _: Option<Duration>) -> io::Result<()> {
-        sgx_ineffective(())
+    pub fn set_read_timeout(&self, dur: Option<Duration>) -> io::Result<()> {
+        match dur {
+            Some(dur) if dur == Duration::default() => {
+                return Err(io::Error::new(io::ErrorKind::InvalidInput,
+                                          "cannot set a 0 duration timeout"));
+            }
+            _ => sgx_ineffective(())
+        }
     }
 
-    pub fn set_write_timeout(&self, _: Option<Duration>) -> io::Result<()> {
-        sgx_ineffective(())
+    pub fn set_write_timeout(&self, dur: Option<Duration>) -> io::Result<()> {
+        match dur {
+            Some(dur) if dur == Duration::default() => {
+                return Err(io::Error::new(io::ErrorKind::InvalidInput,
+                                          "cannot set a 0 duration timeout"));
+            }
+            _ => sgx_ineffective(())
+        }
     }
 
     pub fn read_timeout(&self) -> io::Result<Option<Duration>> {
@@ -93,8 +136,16 @@ impl TcpStream {
         self.inner.inner.read(buf)
     }
 
+    pub fn read_vectored(&self, bufs: &mut [IoVecMut<'_>]) -> io::Result<usize> {
+        io::default_read_vectored(|b| self.read(b), bufs)
+    }
+
     pub fn write(&self, buf: &[u8]) -> io::Result<usize> {
         self.inner.inner.write(buf)
+    }
+
+    pub fn write_vectored(&self, bufs: &[IoVec<'_>]) -> io::Result<usize> {
+        io::default_write_vectored(|b| self.write(b), bufs)
     }
 
     pub fn peer_addr(&self) -> io::Result<SocketAddr> {
@@ -138,9 +189,40 @@ impl TcpStream {
     }
 }
 
-#[derive(Debug, Clone)]
+impl AsInner<Socket> for TcpStream {
+    fn as_inner(&self) -> &Socket { &self.inner }
+}
+
+// `Inner` includes `peer_addr` so that a `TcpStream` maybe correctly
+// reconstructed if `Socket::try_into_inner` fails.
+impl IntoInner<(Socket, Option<String>)> for TcpStream {
+    fn into_inner(self) -> (Socket, Option<String>) {
+        (self.inner, self.peer_addr)
+    }
+}
+
+impl FromInner<(Socket, Option<String>)> for TcpStream {
+    fn from_inner((inner, peer_addr): (Socket, Option<String>)) -> TcpStream {
+        TcpStream { inner, peer_addr }
+    }
+}
+
+#[derive(Clone)]
 pub struct TcpListener {
     inner: Socket,
+}
+
+impl fmt::Debug for TcpListener {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut res = f.debug_struct("TcpListener");
+
+        if let Some(ref addr) = self.inner.local_addr {
+            res.field("addr", addr);
+        }
+
+        res.field("fd", &self.inner.inner.as_inner())
+            .finish()
+    }
 }
 
 impl TcpListener {
@@ -156,6 +238,7 @@ impl TcpListener {
 
     pub fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
         let (fd, local_addr, peer_addr) = usercalls::accept_stream(self.inner.inner.raw())?;
+        let peer_addr = Some(peer_addr);
         let ret_peer = addr_to_sockaddr(&peer_addr).unwrap_or_else(|_| ([0; 4], 0).into());
         Ok((TcpStream { inner: Socket::new(fd, local_addr), peer_addr }, ret_peer))
     }
@@ -189,11 +272,31 @@ impl TcpListener {
     }
 }
 
+impl AsInner<Socket> for TcpListener {
+    fn as_inner(&self) -> &Socket { &self.inner }
+}
+
+impl IntoInner<Socket> for TcpListener {
+    fn into_inner(self) -> Socket {
+        self.inner
+    }
+}
+
+impl FromInner<Socket> for TcpListener {
+    fn from_inner(inner: Socket) -> TcpListener {
+        TcpListener { inner }
+    }
+}
+
 pub struct UdpSocket(Void);
 
 impl UdpSocket {
     pub fn bind(_: io::Result<&SocketAddr>) -> io::Result<UdpSocket> {
         unsupported()
+    }
+
+    pub fn peer_addr(&self) -> io::Result<SocketAddr> {
+        match self.0 {}
     }
 
     pub fn socket_addr(&self) -> io::Result<SocketAddr> {
@@ -318,7 +421,7 @@ impl UdpSocket {
 }
 
 impl fmt::Debug for UdpSocket {
-    fn fmt(&self, _f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {}
     }
 }
@@ -335,7 +438,7 @@ impl error::Error for NonIpSockAddr {
 }
 
 impl fmt::Display for NonIpSockAddr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Failed to convert address to SocketAddr: {}", self.host)
     }
 }
@@ -359,10 +462,10 @@ impl Iterator for LookupHost {
     }
 }
 
-impl<'a> TryFrom<&'a str> for LookupHost {
+impl TryFrom<&str> for LookupHost {
     type Error = io::Error;
 
-    fn try_from(v: &'a str) -> io::Result<LookupHost> {
+    fn try_from(v: &str) -> io::Result<LookupHost> {
         LookupHost::new(v.to_owned())
     }
 }

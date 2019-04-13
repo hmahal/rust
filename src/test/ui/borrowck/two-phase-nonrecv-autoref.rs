@@ -1,13 +1,3 @@
-// Copyright 2017 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 // revisions: ast nll
 //[ast]compile-flags:
 //[nll]compile-flags: -Z borrowck=mir -Z two-phase-borrows
@@ -77,9 +67,9 @@ fn overloaded_call_traits() {
     }
     fn twice_ten_so<F: FnOnce(i32) -> i32>(f: Box<F>) {
         f(f(10));
-        //[nll]~^   ERROR use of moved value: `*f`
-        //[g2p]~^^  ERROR use of moved value: `*f`
-        //[ast]~^^^ ERROR use of moved value: `*f`
+        //[nll]~^   ERROR use of moved value: `f`
+        //[g2p]~^^  ERROR use of moved value: `f`
+        //[ast]~^^^ ERROR use of moved value: `f`
     }
 
     fn twice_ten_om(f: &mut FnMut(i32) -> i32) {
@@ -93,13 +83,9 @@ fn overloaded_call_traits() {
     }
     fn twice_ten_oo(f: Box<FnOnce(i32) -> i32>) {
         f(f(10));
-        //[nll]~^          ERROR cannot move a value of type
-        //[nll]~^^         ERROR cannot move a value of type
-        //[nll]~^^^        ERROR use of moved value: `*f`
-        //[g2p]~^^^^       ERROR cannot move a value of type
-        //[g2p]~^^^^^      ERROR cannot move a value of type
-        //[g2p]~^^^^^^     ERROR use of moved value: `*f`
-        //[ast]~^^^^^^^    ERROR use of moved value: `*f`
+        //[nll]~^   ERROR use of moved value: `f`
+        //[g2p]~^^  ERROR use of moved value: `f`
+        //[ast]~^^^ ERROR use of moved value: `f`
     }
 
     twice_ten_sm(&mut |x| x + 1);

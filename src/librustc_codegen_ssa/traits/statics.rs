@@ -1,14 +1,5 @@
-// Copyright 2018 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 use super::BackendTypes;
+use syntax_pos::symbol::LocalInternedString;
 use rustc::hir::def_id::DefId;
 use rustc::ty::layout::Align;
 
@@ -18,5 +9,13 @@ pub trait StaticMethods: BackendTypes {
 }
 
 pub trait StaticBuilderMethods<'tcx>: BackendTypes {
-    fn get_static(&self, def_id: DefId) -> Self::Value;
+    fn get_static(&mut self, def_id: DefId) -> Self::Value;
+    fn static_panic_msg(
+        &mut self,
+        msg: Option<LocalInternedString>,
+        filename: LocalInternedString,
+        line: Self::Value,
+        col: Self::Value,
+        kind: &str,
+    ) -> Self::Value;
 }

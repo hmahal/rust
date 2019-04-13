@@ -1,13 +1,5 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
+use core::cell::Cell;
+use core::convert::TryFrom;
 use core::iter::*;
 use core::{i8, i16, isize};
 use core::usize;
@@ -886,7 +878,7 @@ fn test_iterator_flat_map() {
     assert_eq!(i, ys.len());
 }
 
-/// Test `FlatMap::fold` with items already picked off the front and back,
+/// Tests `FlatMap::fold` with items already picked off the front and back,
 /// to make sure all parts of the `FlatMap` are folded correctly.
 #[test]
 fn test_iterator_flat_map_fold() {
@@ -924,7 +916,7 @@ fn test_iterator_flatten() {
     assert_eq!(i, ys.len());
 }
 
-/// Test `Flatten::fold` with items already picked off the front and back,
+/// Tests `Flatten::fold` with items already picked off the front and back,
 /// to make sure all parts of the `Flatten` are folded correctly.
 #[test]
 fn test_iterator_flatten_fold() {
@@ -1003,6 +995,8 @@ fn test_cycle() {
     assert_eq!(it.next(), None);
 
     assert_eq!(empty::<i32>().cycle().fold(0, |acc, x| acc + x), 0);
+
+    assert_eq!(once(1).cycle().skip(1).take(4).fold(0, |acc, x| acc + x), 4);
 }
 
 #[test]
@@ -1012,6 +1006,33 @@ fn test_iterator_nth() {
         assert_eq!(v.iter().nth(i).unwrap(), &v[i]);
     }
     assert_eq!(v.iter().nth(v.len()), None);
+}
+
+#[test]
+fn test_iterator_nth_back() {
+    let v: &[_] = &[0, 1, 2, 3, 4];
+    for i in 0..v.len() {
+        assert_eq!(v.iter().nth_back(i).unwrap(), &v[v.len() - 1 - i]);
+    }
+    assert_eq!(v.iter().nth_back(v.len()), None);
+}
+
+#[test]
+fn test_iterator_rev_nth_back() {
+    let v: &[_] = &[0, 1, 2, 3, 4];
+    for i in 0..v.len() {
+        assert_eq!(v.iter().rev().nth_back(i).unwrap(), &v[i]);
+    }
+    assert_eq!(v.iter().rev().nth_back(v.len()), None);
+}
+
+#[test]
+fn test_iterator_rev_nth() {
+    let v: &[_] = &[0, 1, 2, 3, 4];
+    for i in 0..v.len() {
+        assert_eq!(v.iter().rev().nth(i).unwrap(), &v[v.len() - 1 - i]);
+    }
+    assert_eq!(v.iter().rev().nth(v.len()), None);
 }
 
 #[test]
@@ -1061,12 +1082,39 @@ fn test_iterator_product_result() {
     assert_eq!(v.iter().cloned().product::<Result<i32, _>>(), Err(()));
 }
 
+/// A wrapper struct that implements `Eq` and `Ord` based on the wrapped
+/// integer modulo 3. Used to test that `Iterator::max` and `Iterator::min`
+/// return the correct element if some of them are equal.
+#[derive(Debug)]
+struct Mod3(i32);
+
+impl PartialEq for Mod3 {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 % 3 == other.0 % 3
+    }
+}
+
+impl Eq for Mod3 {}
+
+impl PartialOrd for Mod3 {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Mod3 {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        (self.0 % 3).cmp(&(other.0 % 3))
+    }
+}
+
 #[test]
 fn test_iterator_max() {
     let v: &[_] = &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
     assert_eq!(v[..4].iter().cloned().max(), Some(3));
     assert_eq!(v.iter().cloned().max(), Some(10));
     assert_eq!(v[..0].iter().cloned().max(), None);
+    assert_eq!(v.iter().cloned().map(Mod3).max().map(|x| x.0), Some(8));
 }
 
 #[test]
@@ -1075,6 +1123,7 @@ fn test_iterator_min() {
     assert_eq!(v[..4].iter().cloned().min(), Some(0));
     assert_eq!(v.iter().cloned().min(), Some(0));
     assert_eq!(v[..0].iter().cloned().min(), None);
+    assert_eq!(v.iter().cloned().map(Mod3).min().map(|x| x.0), Some(0));
 }
 
 #[test]
@@ -1232,6 +1281,23 @@ fn test_rev() {
     it.next();
     assert!(it.rev().cloned().collect::<Vec<isize>>() ==
             vec![16, 14, 12, 10, 8, 6]);
+}
+
+#[test]
+fn test_copied() {
+    let xs = [2, 4, 6, 8];
+
+    let mut it = xs.iter().copied();
+    assert_eq!(it.len(), 4);
+    assert_eq!(it.next(), Some(2));
+    assert_eq!(it.len(), 3);
+    assert_eq!(it.next(), Some(4));
+    assert_eq!(it.len(), 2);
+    assert_eq!(it.next_back(), Some(8));
+    assert_eq!(it.len(), 1);
+    assert_eq!(it.next_back(), Some(6));
+    assert_eq!(it.len(), 0);
+    assert_eq!(it.next_back(), None);
 }
 
 #[test]
@@ -1702,19 +1768,97 @@ fn test_range_inclusive_folds() {
     assert_eq!((1..=10).sum::<i32>(), 55);
     assert_eq!((1..=10).rev().sum::<i32>(), 55);
 
-    let mut it = 40..=50;
+    let mut it = 44..=50;
     assert_eq!(it.try_fold(0, i8::checked_add), None);
-    assert_eq!(it, 44..=50);
+    assert_eq!(it, 47..=50);
+    assert_eq!(it.try_fold(0, i8::checked_add), None);
+    assert_eq!(it, 50..=50);
+    assert_eq!(it.try_fold(0, i8::checked_add), Some(50));
+    assert!(it.is_empty());
+    assert_eq!(it.try_fold(0, i8::checked_add), Some(0));
+    assert!(it.is_empty());
+
+    let mut it = 40..=47;
     assert_eq!(it.try_rfold(0, i8::checked_add), None);
-    assert_eq!(it, 44..=47);
+    assert_eq!(it, 40..=44);
+    assert_eq!(it.try_rfold(0, i8::checked_add), None);
+    assert_eq!(it, 40..=41);
+    assert_eq!(it.try_rfold(0, i8::checked_add), Some(81));
+    assert!(it.is_empty());
+    assert_eq!(it.try_rfold(0, i8::checked_add), Some(0));
+    assert!(it.is_empty());
 
     let mut it = 10..=20;
     assert_eq!(it.try_fold(0, |a,b| Some(a+b)), Some(165));
+    assert!(it.is_empty());
+    assert_eq!(it.try_fold(0, |a,b| Some(a+b)), Some(0));
     assert!(it.is_empty());
 
     let mut it = 10..=20;
     assert_eq!(it.try_rfold(0, |a,b| Some(a+b)), Some(165));
     assert!(it.is_empty());
+    assert_eq!(it.try_rfold(0, |a,b| Some(a+b)), Some(0));
+    assert!(it.is_empty());
+}
+
+#[test]
+fn test_range_size_hint() {
+    use core::usize::MAX as UMAX;
+    assert_eq!((0..0usize).size_hint(), (0, Some(0)));
+    assert_eq!((0..100usize).size_hint(), (100, Some(100)));
+    assert_eq!((0..UMAX).size_hint(), (UMAX, Some(UMAX)));
+
+    let umax = u128::try_from(UMAX).unwrap();
+    assert_eq!((0..0u128).size_hint(), (0, Some(0)));
+    assert_eq!((0..100u128).size_hint(), (100, Some(100)));
+    assert_eq!((0..umax).size_hint(), (UMAX, Some(UMAX)));
+    assert_eq!((0..umax + 1).size_hint(), (UMAX, None));
+
+    use core::isize::{MAX as IMAX, MIN as IMIN};
+    assert_eq!((0..0isize).size_hint(), (0, Some(0)));
+    assert_eq!((-100..100isize).size_hint(), (200, Some(200)));
+    assert_eq!((IMIN..IMAX).size_hint(), (UMAX, Some(UMAX)));
+
+    let imin = i128::try_from(IMIN).unwrap();
+    let imax = i128::try_from(IMAX).unwrap();
+    assert_eq!((0..0i128).size_hint(), (0, Some(0)));
+    assert_eq!((-100..100i128).size_hint(), (200, Some(200)));
+    assert_eq!((imin..imax).size_hint(), (UMAX, Some(UMAX)));
+    assert_eq!((imin..imax + 1).size_hint(), (UMAX, None));
+}
+
+#[test]
+fn test_range_inclusive_size_hint() {
+    use core::usize::MAX as UMAX;
+    assert_eq!((1..=0usize).size_hint(), (0, Some(0)));
+    assert_eq!((0..=0usize).size_hint(), (1, Some(1)));
+    assert_eq!((0..=100usize).size_hint(), (101, Some(101)));
+    assert_eq!((0..=UMAX - 1).size_hint(), (UMAX, Some(UMAX)));
+    assert_eq!((0..=UMAX).size_hint(), (UMAX, None));
+
+    let umax = u128::try_from(UMAX).unwrap();
+    assert_eq!((1..=0u128).size_hint(), (0, Some(0)));
+    assert_eq!((0..=0u128).size_hint(), (1, Some(1)));
+    assert_eq!((0..=100u128).size_hint(), (101, Some(101)));
+    assert_eq!((0..=umax - 1).size_hint(), (UMAX, Some(UMAX)));
+    assert_eq!((0..=umax).size_hint(), (UMAX, None));
+    assert_eq!((0..=umax + 1).size_hint(), (UMAX, None));
+
+    use core::isize::{MAX as IMAX, MIN as IMIN};
+    assert_eq!((0..=-1isize).size_hint(), (0, Some(0)));
+    assert_eq!((0..=0isize).size_hint(), (1, Some(1)));
+    assert_eq!((-100..=100isize).size_hint(), (201, Some(201)));
+    assert_eq!((IMIN..=IMAX - 1).size_hint(), (UMAX, Some(UMAX)));
+    assert_eq!((IMIN..=IMAX).size_hint(), (UMAX, None));
+
+    let imin = i128::try_from(IMIN).unwrap();
+    let imax = i128::try_from(IMAX).unwrap();
+    assert_eq!((0..=-1i128).size_hint(), (0, Some(0)));
+    assert_eq!((0..=0i128).size_hint(), (1, Some(1)));
+    assert_eq!((-100..=100i128).size_hint(), (201, Some(201)));
+    assert_eq!((imin..=imax - 1).size_hint(), (UMAX, Some(UMAX)));
+    assert_eq!((imin..=imax).size_hint(), (UMAX, None));
+    assert_eq!((imin..=imax + 1).size_hint(), (UMAX, None));
 }
 
 #[test]
@@ -1868,6 +2012,23 @@ fn test_once() {
     let mut it = once(42);
     assert_eq!(it.next(), Some(42));
     assert_eq!(it.next(), None);
+}
+
+#[test]
+fn test_once_with() {
+    let count = Cell::new(0);
+    let mut it = once_with(|| {
+        count.set(count.get() + 1);
+        42
+    });
+
+    assert_eq!(count.get(), 0);
+    assert_eq!(it.next(), Some(42));
+    assert_eq!(count.get(), 1);
+    assert_eq!(it.next(), None);
+    assert_eq!(count.get(), 1);
+    assert_eq!(it.next(), None);
+    assert_eq!(count.get(), 1);
 }
 
 #[test]
@@ -2180,4 +2341,17 @@ fn test_monad_laws_associativity() {
     fn g(x: usize) -> impl Iterator<Item = usize> { (0..x).rev() }
     assert_eq!((0..10).flat_map(f).flat_map(g).sum::<usize>(),
                 (0..10).flat_map(|x| f(x).flat_map(g)).sum::<usize>());
+}
+
+#[test]
+fn test_is_sorted() {
+    assert!([1, 2, 2, 9].iter().is_sorted());
+    assert!(![1, 3, 2].iter().is_sorted());
+    assert!([0].iter().is_sorted());
+    assert!(std::iter::empty::<i32>().is_sorted());
+    assert!(![0.0, 1.0, std::f32::NAN].iter().is_sorted());
+    assert!([-2, -1, 0, 3].iter().is_sorted());
+    assert!(![-2i32, -1, 0, 3].iter().is_sorted_by_key(|n| n.abs()));
+    assert!(!["c", "bb", "aaa"].iter().is_sorted());
+    assert!(["c", "bb", "aaa"].iter().is_sorted_by_key(|s| s.len()));
 }

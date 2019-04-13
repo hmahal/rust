@@ -1,28 +1,18 @@
-// Copyright 2016-2017 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 macro_rules! unimpl {
     () => (return Err(io::Error::new(io::ErrorKind::Other, "No networking available on L4Re."));)
 }
 
 pub mod net {
     #![allow(warnings)]
-    use fmt;
-    use io;
-    use libc;
-    use net::{SocketAddr, Shutdown, Ipv4Addr, Ipv6Addr};
-    use sys_common::{AsInner, FromInner, IntoInner};
-    use sys::fd::FileDesc;
-    use time::Duration;
-    use convert::TryFrom;
+    use crate::fmt;
+    use crate::io::{self, IoVec, IoVecMut};
+    use crate::net::{SocketAddr, Shutdown, Ipv4Addr, Ipv6Addr};
+    use crate::sys_common::{AsInner, FromInner, IntoInner};
+    use crate::sys::fd::FileDesc;
+    use crate::time::Duration;
+    use crate::convert::TryFrom;
 
+    #[allow(unused_extern_crates)]
     pub extern crate libc as netc;
 
     pub struct Socket(FileDesc);
@@ -56,6 +46,10 @@ pub mod net {
             unimpl!();
         }
 
+        pub fn read_vectored(&self, _: &mut [IoVecMut<'_>]) -> io::Result<usize> {
+            unimpl!();
+        }
+
         pub fn peek(&self, _: &mut [u8]) -> io::Result<usize> {
             unimpl!();
         }
@@ -69,6 +63,10 @@ pub mod net {
         }
 
         pub fn write(&self, _: &[u8]) -> io::Result<usize> {
+            unimpl!();
+        }
+
+        pub fn write_vectored(&self, _: &[IoVec<'_>]) -> io::Result<usize> {
             unimpl!();
         }
 
@@ -154,7 +152,15 @@ pub mod net {
             unimpl!();
         }
 
+        pub fn read_vectored(&self, _: &mut [IoVecMut<'_>]) -> io::Result<usize> {
+            unimpl!();
+        }
+
         pub fn write(&self, _: &[u8]) -> io::Result<usize> {
+            unimpl!();
+        }
+
+        pub fn write_vectored(&self, _: &[IoVec<'_>]) -> io::Result<usize> {
             unimpl!();
         }
 
@@ -206,7 +212,7 @@ pub mod net {
     }
 
     impl fmt::Debug for TcpStream {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(f, "No networking support available on L4Re")
         }
     }
@@ -268,7 +274,7 @@ pub mod net {
     }
 
     impl fmt::Debug for TcpListener {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(f, "No networking support available on L4Re.")
         }
     }
@@ -285,6 +291,10 @@ pub mod net {
         pub fn socket(&self) -> &Socket { &self.inner }
 
         pub fn into_socket(self) -> Socket { self.inner }
+
+        pub fn peer_addr(&self) -> io::Result<SocketAddr> {
+            unimpl!();
+        }
 
         pub fn socket_addr(&self) -> io::Result<SocketAddr> {
             unimpl!();
@@ -414,7 +424,7 @@ pub mod net {
     }
 
     impl fmt::Debug for UdpSocket {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(f, "No networking support on L4Re available.")
         }
     }
@@ -441,10 +451,10 @@ pub mod net {
     unsafe impl Send for LookupHost {}
 
 
-    impl<'a> TryFrom<&'a str> for LookupHost {
+    impl TryFrom<&str> for LookupHost {
         type Error = io::Error;
 
-        fn try_from(_v: &'a str) -> io::Result<LookupHost> {
+        fn try_from(_v: &str) -> io::Result<LookupHost> {
             unimpl!();
         }
     }
@@ -457,4 +467,3 @@ pub mod net {
         }
     }
 }
-

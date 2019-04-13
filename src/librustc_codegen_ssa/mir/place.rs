@@ -1,38 +1,28 @@
-// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 use rustc::ty::{self, Ty};
 use rustc::ty::layout::{self, Align, TyLayout, LayoutOf, VariantIdx, HasTyCtxt};
 use rustc::mir;
 use rustc::mir::tcx::PlaceTy;
-use MemFlags;
-use common::IntPredicate;
-use glue;
+use crate::MemFlags;
+use crate::common::IntPredicate;
+use crate::glue;
 
-use traits::*;
+use crate::traits::*;
 
 use super::{FunctionCx, LocalRef};
 use super::operand::OperandValue;
 
 #[derive(Copy, Clone, Debug)]
 pub struct PlaceRef<'tcx, V> {
-    /// Pointer to the contents of the place
+    /// Pointer to the contents of the place.
     pub llval: V,
 
-    /// This place's extra data if it is unsized, or null
+    /// This place's extra data if it is unsized, or null.
     pub llextra: Option<V>,
 
-    /// Monomorphized type of this place, including variant information
+    /// Monomorphized type of this place, including variant information.
     pub layout: TyLayout<'tcx>,
 
-    /// What alignment we know for this place
+    /// What alignment we know for this place.
     pub align: Align,
 }
 
@@ -43,6 +33,21 @@ impl<'a, 'tcx: 'a, V: CodegenObject> PlaceRef<'tcx, V> {
         align: Align,
     ) -> PlaceRef<'tcx, V> {
         assert!(!layout.is_unsized());
+        PlaceRef {
+            llval,
+            llextra: None,
+            layout,
+            align
+        }
+    }
+
+    fn new_thin_place<Bx: BuilderMethods<'a, 'tcx, Value = V>>(
+        bx: &mut Bx,
+        llval: V,
+        layout: TyLayout<'tcx>,
+        align: Align,
+    ) -> PlaceRef<'tcx, V> {
+        assert!(!bx.cx().type_has_metadata(layout.ty));
         PlaceRef {
             llval,
             llextra: None,
@@ -75,7 +80,7 @@ impl<'a, 'tcx: 'a, V: CodegenObject> PlaceRef<'tcx, V> {
         Self::alloca(bx, ptr_layout, name)
     }
 
-    pub fn len<Cx: CodegenMethods<'tcx, Value = V>>(
+    pub fn len<Cx: ConstMethods<'tcx, Value = V>>(
         &self,
         cx: &Cx
     ) -> V {
@@ -211,37 +216,36 @@ impl<'a, 'tcx: 'a, V: CodegenObject> PlaceRef<'tcx, V> {
         if self.layout.abi.is_uninhabited() {
             return bx.cx().const_undef(cast_to);
         }
-        match self.layout.variants {
+        let (discr_scalar, discr_kind, discr_index) = match self.layout.variants {
             layout::Variants::Single { index } => {
                 let discr_val = self.layout.ty.ty_adt_def().map_or(
                     index.as_u32() as u128,
                     |def| def.discriminant_for_variant(bx.cx().tcx(), index).val);
                 return bx.cx().const_uint_big(cast_to, discr_val);
             }
-            layout::Variants::Tagged { .. } |
-            layout::Variants::NicheFilling { .. } => {},
-        }
+            layout::Variants::Multiple { ref discr, ref discr_kind, discr_index, .. } => {
+                (discr, discr_kind, discr_index)
+            }
+        };
 
-        let discr = self.project_field(bx, 0);
+        let discr = self.project_field(bx, discr_index);
         let lldiscr = bx.load_operand(discr).immediate();
-        match self.layout.variants {
-            layout::Variants::Single { .. } => bug!(),
-            layout::Variants::Tagged { ref tag, .. } => {
-                let signed = match tag.value {
+        match *discr_kind {
+            layout::DiscriminantKind::Tag => {
+                let signed = match discr_scalar.value {
                     // We use `i1` for bytes that are always `0` or `1`,
                     // e.g., `#[repr(i8)] enum E { A, B }`, but we can't
                     // let LLVM interpret the `i1` as signed, because
                     // then `i1 1` (i.e., E::B) is effectively `i8 -1`.
-                    layout::Int(_, signed) => !tag.is_bool() && signed,
+                    layout::Int(_, signed) => !discr_scalar.is_bool() && signed,
                     _ => false
                 };
                 bx.intcast(lldiscr, cast_to, signed)
             }
-            layout::Variants::NicheFilling {
+            layout::DiscriminantKind::Niche {
                 dataful_variant,
                 ref niche_variants,
                 niche_start,
-                ..
             } => {
                 let niche_llty = bx.cx().immediate_backend_type(discr.layout);
                 if niche_variants.start() == niche_variants.end() {
@@ -272,7 +276,7 @@ impl<'a, 'tcx: 'a, V: CodegenObject> PlaceRef<'tcx, V> {
         }
     }
 
-    /// Set the discriminant for a new value of the given case of the given
+    /// Sets the discriminant for a new value of the given case of the given
     /// representation.
     pub fn codegen_set_discr<Bx: BuilderMethods<'a, 'tcx, Value = V>>(
         &self,
@@ -286,8 +290,12 @@ impl<'a, 'tcx: 'a, V: CodegenObject> PlaceRef<'tcx, V> {
             layout::Variants::Single { index } => {
                 assert_eq!(index, variant_index);
             }
-            layout::Variants::Tagged { .. } => {
-                let ptr = self.project_field(bx, 0);
+            layout::Variants::Multiple {
+                discr_kind: layout::DiscriminantKind::Tag,
+                discr_index,
+                ..
+            } => {
+                let ptr = self.project_field(bx, discr_index);
                 let to = self.layout.ty.ty_adt_def().unwrap()
                     .discriminant_for_variant(bx.tcx(), variant_index)
                     .val;
@@ -296,10 +304,13 @@ impl<'a, 'tcx: 'a, V: CodegenObject> PlaceRef<'tcx, V> {
                     ptr.llval,
                     ptr.align);
             }
-            layout::Variants::NicheFilling {
-                dataful_variant,
-                ref niche_variants,
-                niche_start,
+            layout::Variants::Multiple {
+                discr_kind: layout::DiscriminantKind::Niche {
+                    dataful_variant,
+                    ref niche_variants,
+                    niche_start,
+                },
+                discr_index,
                 ..
             } => {
                 if variant_index != dataful_variant {
@@ -312,7 +323,7 @@ impl<'a, 'tcx: 'a, V: CodegenObject> PlaceRef<'tcx, V> {
                         bx.memset(self.llval, fill_byte, size, self.align, MemFlags::empty());
                     }
 
-                    let niche = self.project_field(bx, 0);
+                    let niche = self.project_field(bx, discr_index);
                     let niche_llty = bx.cx().immediate_backend_type(niche.layout);
                     let niche_value = variant_index.as_u32() - niche_variants.start().as_u32();
                     let niche_value = (niche_value as u128)
@@ -335,11 +346,20 @@ impl<'a, 'tcx: 'a, V: CodegenObject> PlaceRef<'tcx, V> {
         bx: &mut Bx,
         llindex: V
     ) -> Self {
+        // Statically compute the offset if we can, otherwise just use the element size,
+        // as this will yield the lowest alignment.
+        let layout = self.layout.field(bx, 0);
+        let offset = if bx.is_const_integral(llindex) {
+            layout.size.checked_mul(bx.const_to_uint(llindex), bx).unwrap_or(layout.size)
+        } else {
+            layout.size
+        };
+
         PlaceRef {
             llval: bx.inbounds_gep(self.llval, &[bx.cx().const_usize(0), llindex]),
             llextra: None,
-            layout: self.layout.field(bx.cx(), 0),
-            align: self.align
+            layout,
+            align: self.align.restrict_for_offset(offset),
         }
     }
 
@@ -378,7 +398,7 @@ impl<'a, 'tcx: 'a, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
         let cx = self.cx;
         let tcx = self.cx.tcx();
 
-        if let mir::Place::Local(index) = *place {
+        if let mir::Place::Base(mir::PlaceBase::Local(index)) = *place {
             match self.locals[index] {
                 LocalRef::Place(place) => {
                     return place;
@@ -393,18 +413,22 @@ impl<'a, 'tcx: 'a, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
         }
 
         let result = match *place {
-            mir::Place::Local(_) => bug!(), // handled above
-            mir::Place::Promoted(box (index, ty)) => {
+            mir::Place::Base(mir::PlaceBase::Local(_)) => bug!(), // handled above
+            mir::Place::Base(
+                mir::PlaceBase::Static(
+                    box mir::Static { ty, kind: mir::StaticKind::Promoted(promoted) }
+                )
+            ) => {
                 let param_env = ty::ParamEnv::reveal_all();
                 let cid = mir::interpret::GlobalId {
                     instance: self.instance,
-                    promoted: Some(index),
+                    promoted: Some(promoted),
                 };
                 let layout = cx.layout_of(self.monomorphize(&ty));
                 match bx.tcx().const_eval(param_env.and(cid)) {
                     Ok(val) => match val.val {
-                        mir::interpret::ConstValue::ByRef(_, alloc, offset) => {
-                            bx.cx().from_const_alloc(layout, alloc, offset)
+                        mir::interpret::ConstValue::ByRef(ptr, alloc) => {
+                            bx.cx().from_const_alloc(layout, alloc, ptr.offset)
                         }
                         _ => bug!("promoteds should have an allocation: {:?}", val),
                     },
@@ -421,9 +445,16 @@ impl<'a, 'tcx: 'a, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
                     }
                 }
             }
-            mir::Place::Static(box mir::Static { def_id, ty }) => {
+            mir::Place::Base(
+                mir::PlaceBase::Static(
+                    box mir::Static { ty, kind: mir::StaticKind::Static(def_id) }
+                )
+            ) => {
+                // NB: The layout of a static may be unsized as is the case when working
+                // with a static that is an extern_type.
                 let layout = cx.layout_of(self.monomorphize(&ty));
-                PlaceRef::new_sized(bx.get_static(def_id), layout, layout.align.abi)
+                let static_ = bx.get_static(def_id);
+                PlaceRef::new_thin_place(bx, static_, layout, layout.align.abi)
             },
             mir::Place::Projection(box mir::Projection {
                 ref base,
@@ -441,7 +472,9 @@ impl<'a, 'tcx: 'a, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
                         cg_base.project_field(bx, field.index())
                     }
                     mir::ProjectionElem::Index(index) => {
-                        let index = &mir::Operand::Copy(mir::Place::Local(index));
+                        let index = &mir::Operand::Copy(
+                            mir::Place::Base(mir::PlaceBase::Local(index))
+                        );
                         let index = self.codegen_operand(bx, index);
                         let llindex = index.immediate();
                         cg_base.project_index(bx, llindex)
@@ -463,8 +496,8 @@ impl<'a, 'tcx: 'a, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
                     mir::ProjectionElem::Subslice { from, to } => {
                         let mut subslice = cg_base.project_index(bx,
                             bx.cx().const_usize(from as u64));
-                        let projected_ty = PlaceTy::Ty { ty: cg_base.layout.ty }
-                            .projection_ty(tcx, &projection.elem).to_ty(tcx);
+                        let projected_ty = PlaceTy::from_ty(cg_base.layout.ty)
+                            .projection_ty(tcx, &projection.elem).ty;
                         subslice.layout = bx.cx().layout_of(self.monomorphize(&projected_ty));
 
                         if subslice.layout.is_unsized() {
@@ -492,6 +525,6 @@ impl<'a, 'tcx: 'a, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
     pub fn monomorphized_place_ty(&self, place: &mir::Place<'tcx>) -> Ty<'tcx> {
         let tcx = self.cx.tcx();
         let place_ty = place.ty(self.mir, tcx);
-        self.monomorphize(&place_ty.to_ty(tcx))
+        self.monomorphize(&place_ty.ty)
     }
 }

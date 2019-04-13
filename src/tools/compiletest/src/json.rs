@@ -1,21 +1,11 @@
-// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
+//! These structs are a subset of the ones found in `syntax::json`.
+//! They are only used for deserialization of JSON output provided by libtest.
 
-use errors::{Error, ErrorKind};
-use runtest::ProcRes;
+use crate::errors::{Error, ErrorKind};
+use crate::runtest::ProcRes;
 use serde_json;
 use std::path::Path;
 use std::str::FromStr;
-
-// These structs are a subset of the ones found in
-// `syntax::json`.
 
 #[derive(Deserialize)]
 struct Diagnostic {

@@ -1,14 +1,3 @@
-// Copyright 2016 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-
 // This test case tests the incremental compilation hash (ICH) implementation
 // for closure expression.
 
@@ -48,7 +37,7 @@ pub fn add_parameter() {
 }
 
 #[cfg(not(cfail1))]
-#[rustc_clean(cfg="cfail2", except="HirBody, MirValidated, MirOptimized, TypeckTables")]
+#[rustc_clean(cfg="cfail2", except="HirBody, mir_built, optimized_mir, typeck_tables_of")]
 #[rustc_clean(cfg="cfail3")]
 pub fn add_parameter() {
     let x = 0u32;
@@ -64,7 +53,7 @@ pub fn change_parameter_pattern() {
 }
 
 #[cfg(not(cfail1))]
-#[rustc_clean(cfg="cfail2", except="HirBody, MirValidated, TypeckTables")]
+#[rustc_clean(cfg="cfail2", except="HirBody, mir_built, typeck_tables_of")]
 #[rustc_clean(cfg="cfail3")]
 pub fn change_parameter_pattern() {
     let _ = |&x: &u32| x;
@@ -95,7 +84,7 @@ pub fn add_type_ascription_to_parameter() {
 }
 
 #[cfg(not(cfail1))]
-#[rustc_clean(cfg="cfail2", except="HirBody, MirValidated, TypeckTables")]
+#[rustc_clean(cfg="cfail2", except="HirBody, mir_built, typeck_tables_of")]
 #[rustc_clean(cfg="cfail3")]
 pub fn add_type_ascription_to_parameter() {
     let closure = |x: u32| x + 1u32;
@@ -112,7 +101,7 @@ pub fn change_parameter_type() {
 }
 
 #[cfg(not(cfail1))]
-#[rustc_clean(cfg="cfail2", except="HirBody, MirValidated, MirOptimized, TypeckTables")]
+#[rustc_clean(cfg="cfail2", except="HirBody, mir_built, optimized_mir, typeck_tables_of")]
 #[rustc_clean(cfg="cfail3")]
 pub fn change_parameter_type() {
     let closure = |x: u16| (x as u64) + 1;

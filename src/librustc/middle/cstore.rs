@@ -1,34 +1,14 @@
-// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! the rustc crate store interface. This also includes types that
 //! are *mostly* used as a part of that interface, but these should
 //! probably get a better home if someone can find one.
 
-use hir::def_id::{CrateNum, DefId, LOCAL_CRATE};
-use hir::map as hir_map;
-use hir::map::definitions::{DefKey, DefPathTable};
+use crate::hir::def_id::{CrateNum, DefId, LOCAL_CRATE};
+use crate::hir::map as hir_map;
+use crate::hir::map::definitions::{DefKey, DefPathTable};
 use rustc_data_structures::svh::Svh;
-use ty::{self, TyCtxt};
-use session::{Session, CrateDisambiguator};
-use session::search_paths::PathKind;
+use crate::ty::{self, TyCtxt};
+use crate::session::{Session, CrateDisambiguator};
+use crate::session::search_paths::PathKind;
 
 use std::any::Any;
 use std::path::{Path, PathBuf};
@@ -37,6 +17,7 @@ use syntax::symbol::Symbol;
 use syntax_pos::Span;
 use rustc_target::spec::Target;
 use rustc_data_structures::sync::{self, MetadataRef, Lrc};
+use rustc_macros::HashStable;
 
 pub use self::NativeLibraryKind::*;
 
@@ -44,14 +25,15 @@ pub use self::NativeLibraryKind::*;
 
 /// Where a crate came from on the local filesystem. One of these three options
 /// must be non-None.
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Clone, Debug, HashStable)]
 pub struct CrateSource {
     pub dylib: Option<(PathBuf, PathKind)>,
     pub rlib: Option<(PathBuf, PathKind)>,
     pub rmeta: Option<(PathBuf, PathKind)>,
 }
 
-#[derive(RustcEncodable, RustcDecodable, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Debug)]
+#[derive(RustcEncodable, RustcDecodable, Copy, Clone,
+         Ord, PartialOrd, Eq, PartialEq, Debug, HashStable)]
 pub enum DepKind {
     /// A dependency that is only used for its macros, none of which are visible from other crates.
     /// These are included in the metadata only as placeholders and are ignored when decoding.
@@ -99,13 +81,14 @@ impl LibSource {
     }
 }
 
-#[derive(Copy, Debug, PartialEq, Clone, RustcEncodable, RustcDecodable)]
+#[derive(Copy, Debug, PartialEq, Clone, RustcEncodable, RustcDecodable, HashStable)]
 pub enum LinkagePreference {
     RequireDynamic,
     RequireStatic,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, RustcEncodable, RustcDecodable)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash,
+         RustcEncodable, RustcDecodable, HashStable)]
 pub enum NativeLibraryKind {
     /// native static library (.a archive)
     NativeStatic,
@@ -117,7 +100,7 @@ pub enum NativeLibraryKind {
     NativeUnknown,
 }
 
-#[derive(Clone, RustcEncodable, RustcDecodable)]
+#[derive(Clone, RustcEncodable, RustcDecodable, HashStable)]
 pub struct NativeLibrary {
     pub kind: NativeLibraryKind,
     pub name: Option<Symbol>,
@@ -126,13 +109,13 @@ pub struct NativeLibrary {
     pub wasm_import_module: Option<Symbol>,
 }
 
-#[derive(Clone, Hash, RustcEncodable, RustcDecodable)]
+#[derive(Clone, Hash, RustcEncodable, RustcDecodable, HashStable)]
 pub struct ForeignModule {
     pub foreign_items: Vec<DefId>,
     pub def_id: DefId,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, HashStable)]
 pub struct ExternCrate {
     pub src: ExternCrateSource,
 
@@ -149,7 +132,7 @@ pub struct ExternCrate {
     pub direct: bool,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, HashStable)]
 pub enum ExternCrateSource {
     /// Crate is loaded by `extern crate`.
     Extern(
@@ -160,7 +143,7 @@ pub enum ExternCrateSource {
     ),
     // Crate is loaded by `use`.
     Use,
-    /// Crate is implicitly loaded by an absolute or an `extern::` path.
+    /// Crate is implicitly loaded by an absolute path.
     Path,
 }
 

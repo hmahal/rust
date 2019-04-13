@@ -1,13 +1,3 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 // Test where we change the body of a private method in an impl.
 // We then test what sort of functions must be rebuilt as a result.
 
@@ -33,7 +23,7 @@ extern crate point;
 pub mod fn_calls_methods_in_same_impl {
     use point::Point;
 
-    #[rustc_clean(label="TypeckTables", cfg="cfail2")]
+    #[rustc_clean(label="typeck_tables_of", cfg="cfail2")]
     pub fn check() {
         let x = Point { x: 2.0, y: 2.0 };
         x.distance_from_origin();
@@ -44,7 +34,7 @@ pub mod fn_calls_methods_in_same_impl {
 pub mod fn_calls_methods_in_another_impl {
     use point::Point;
 
-    #[rustc_clean(label="TypeckTables", cfg="cfail2")]
+    #[rustc_clean(label="typeck_tables_of", cfg="cfail2")]
     pub fn check() {
         let mut x = Point { x: 2.0, y: 2.0 };
         x.translate(3.0, 3.0);
@@ -55,7 +45,7 @@ pub mod fn_calls_methods_in_another_impl {
 pub mod fn_make_struct {
     use point::Point;
 
-    #[rustc_clean(label="TypeckTables", cfg="cfail2")]
+    #[rustc_clean(label="typeck_tables_of", cfg="cfail2")]
     pub fn make_origin() -> Point {
         Point { x: 2.0, y: 2.0 }
     }
@@ -65,7 +55,7 @@ pub mod fn_make_struct {
 pub mod fn_read_field {
     use point::Point;
 
-    #[rustc_clean(label="TypeckTables", cfg="cfail2")]
+    #[rustc_clean(label="typeck_tables_of", cfg="cfail2")]
     pub fn get_x(p: Point) -> f32 {
         p.x
     }
@@ -75,7 +65,7 @@ pub mod fn_read_field {
 pub mod fn_write_field {
     use point::Point;
 
-    #[rustc_clean(label="TypeckTables", cfg="cfail2")]
+    #[rustc_clean(label="typeck_tables_of", cfg="cfail2")]
     pub fn inc_x(p: &mut Point) {
         p.x += 1.0;
     }

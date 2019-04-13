@@ -1,13 +1,3 @@
-// Copyright 2017 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! ICH - Incremental Compilation Hash
 
 crate use rustc_data_structures::fingerprint::Fingerprint;
@@ -17,9 +7,7 @@ pub use self::hcx::{StableHashingContextProvider, StableHashingContext, NodeIdHa
 mod caching_source_map_view;
 mod hcx;
 
-mod impls_cstore;
 mod impls_hir;
-mod impls_mir;
 mod impls_misc;
 mod impls_ty;
 mod impls_syntax;

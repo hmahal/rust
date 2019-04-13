@@ -1,15 +1,15 @@
 error[E0369]: binary operation `==` cannot be applied to type `Error`
-  --> $DIR/derives-span-PartialEq-struct.rs:18:5
+  --> $DIR/derives-span-PartialEq-struct.rs:8:5
    |
-LL |     x: Error //~ ERROR
+LL |     x: Error
    |     ^^^^^^^^
    |
    = note: an implementation of `std::cmp::PartialEq` might be missing for `Error`
 
 error[E0369]: binary operation `!=` cannot be applied to type `Error`
-  --> $DIR/derives-span-PartialEq-struct.rs:18:5
+  --> $DIR/derives-span-PartialEq-struct.rs:8:5
    |
-LL |     x: Error //~ ERROR
+LL |     x: Error
    |     ^^^^^^^^
    |
    = note: an implementation of `std::cmp::PartialEq` might be missing for `Error`

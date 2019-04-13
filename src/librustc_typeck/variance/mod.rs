@@ -1,13 +1,3 @@
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Module for inferring the variance of type and lifetime parameters. See the [rustc guide]
 //! chapter for more info.
 //!
@@ -37,7 +27,7 @@ pub mod test;
 /// Code for transforming variances.
 mod xform;
 
-pub fn provide(providers: &mut Providers) {
+pub fn provide(providers: &mut Providers<'_>) {
     *providers = Providers {
         variances_of,
         crate_variances,
@@ -56,12 +46,12 @@ fn crate_variances<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>, crate_num: CrateNum)
 
 fn variances_of<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>, item_def_id: DefId)
                           -> Lrc<Vec<ty::Variance>> {
-    let id = tcx.hir().as_local_node_id(item_def_id).expect("expected local def-id");
+    let id = tcx.hir().as_local_hir_id(item_def_id).expect("expected local def-id");
     let unsupported = || {
         // Variance not relevant.
-        span_bug!(tcx.hir().span(id), "asked to compute variance for wrong kind of item")
+        span_bug!(tcx.hir().span_by_hir_id(id), "asked to compute variance for wrong kind of item")
     };
-    match tcx.hir().get(id) {
+    match tcx.hir().get_by_hir_id(id) {
         Node::Item(item) => match item.node {
             hir::ItemKind::Enum(..) |
             hir::ItemKind::Struct(..) |
@@ -89,7 +79,7 @@ fn variances_of<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>, item_def_id: DefId)
             _ => unsupported()
         },
 
-        Node::Variant(_) | Node::StructCtor(_) => {}
+        Node::Variant(_) | Node::Ctor(..) => {}
 
         _ => unsupported()
     }
@@ -101,4 +91,3 @@ fn variances_of<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>, item_def_id: DefId)
                        .unwrap_or(&crate_map.empty_variance)
                        .clone()
 }
-

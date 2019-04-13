@@ -1,13 +1,3 @@
-// Copyright 2012-2017 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Slice management and manipulation.
 //!
 //! For more details see [`std::slice`].
@@ -44,7 +34,6 @@ use result::Result::{Ok, Err};
 use ptr;
 use mem;
 use marker::{Copy, Send, Sync, Sized, self};
-use iter_private::TrustedRandomAccess;
 
 #[unstable(feature = "slice_internals", issue = "0",
            reason = "exposed from core to be reused in std; use the memchr crate")]
@@ -877,6 +866,7 @@ impl<T> [T] {
     /// assert_eq!(iter.remainder(), &['l']);
     /// ```
     ///
+    /// [`chunks`]: #method.chunks
     /// [`rchunks`]: #method.rchunks
     /// [`chunks_exact`]: #method.chunks_exact
     #[stable(feature = "rchunks", since = "1.31.0")]
@@ -921,6 +911,7 @@ impl<T> [T] {
     /// assert_eq!(v, &[0, 2, 2, 1, 1]);
     /// ```
     ///
+    /// [`chunks_mut`]: #method.chunks_mut
     /// [`rchunks_mut`]: #method.rchunks_mut
     /// [`chunks_exact_mut`]: #method.chunks_exact_mut
     #[stable(feature = "rchunks", since = "1.31.0")]
@@ -1206,7 +1197,7 @@ impl<T> [T] {
 
     /// Returns an iterator over subslices separated by elements that match
     /// `pred` limited to returning at most `n` items. This starts at the end of
-    /// the slice and works backwards.  The matched element is not contained in
+    /// the slice and works backwards. The matched element is not contained in
     /// the subslices.
     ///
     /// The last element returned, if any, will contain the remainder of the
@@ -1572,6 +1563,10 @@ impl<T> [T] {
     /// randomization to avoid degenerate cases, but with a fixed seed to always provide
     /// deterministic behavior.
     ///
+    /// Due to its key calling strategy, [`sort_unstable_by_key`](#method.sort_unstable_by_key)
+    /// is likely to be slower than [`sort_by_cached_key`](#method.sort_by_cached_key) in
+    /// cases where the key function is expensive.
+    ///
     /// # Examples
     ///
     /// ```
@@ -1588,6 +1583,153 @@ impl<T> [T] {
         where F: FnMut(&T) -> K, K: Ord
     {
         sort::quicksort(self, |a, b| f(a).lt(&f(b)));
+    }
+
+    /// Reorder the slice such that the element at `index` is at its final sorted position.
+    ///
+    /// This reordering has the additional property that any value at position `i < index` will be
+    /// less than or equal to any value at a position `j > index`. Additionally, this reordering is
+    /// unstable (i.e. any number of equal elements may end up at position `index`), in-place
+    /// (i.e. does not allocate), and `O(n)` worst-case. This function is also/ known as "kth
+    /// element" in other libraries. It returns a triplet of the following values: all elements less
+    /// than the one at the given index, the value at the given index, and all elements greater than
+    /// the one at the given index.
+    ///
+    /// # Current implementation
+    ///
+    /// The current algorithm is based on the quickselect portion of the same quicksort algorithm
+    /// used for [`sort_unstable`].
+    ///
+    /// [`sort_unstable`]: #method.sort_unstable
+    ///
+    /// # Panics
+    ///
+    /// Panics when `index >= len()`, meaning it always panics on empty slices.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// #![feature(slice_partition_at_index)]
+    ///
+    /// let mut v = [-5i32, 4, 1, -3, 2];
+    ///
+    /// // Find the median
+    /// v.partition_at_index(2);
+    ///
+    /// // We are only guaranteed the slice will be one of the following, based on the way we sort
+    /// // about the specified index.
+    /// assert!(v == [-3, -5, 1, 2, 4] ||
+    ///         v == [-5, -3, 1, 2, 4] ||
+    ///         v == [-3, -5, 1, 4, 2] ||
+    ///         v == [-5, -3, 1, 4, 2]);
+    /// ```
+    #[unstable(feature = "slice_partition_at_index", issue = "55300")]
+    #[inline]
+    pub fn partition_at_index(&mut self, index: usize) -> (&mut [T], &mut T, &mut [T])
+        where T: Ord
+    {
+        let mut f = |a: &T, b: &T| a.lt(b);
+        sort::partition_at_index(self, index, &mut f)
+    }
+
+    /// Reorder the slice with a comparator function such that the element at `index` is at its
+    /// final sorted position.
+    ///
+    /// This reordering has the additional property that any value at position `i < index` will be
+    /// less than or equal to any value at a position `j > index` using the comparator function.
+    /// Additionally, this reordering is unstable (i.e. any number of equal elements may end up at
+    /// position `index`), in-place (i.e. does not allocate), and `O(n)` worst-case. This function
+    /// is also known as "kth element" in other libraries. It returns a triplet of the following
+    /// values: all elements less than the one at the given index, the value at the given index,
+    /// and all elements greater than the one at the given index, using the provided comparator
+    /// function.
+    ///
+    /// # Current implementation
+    ///
+    /// The current algorithm is based on the quickselect portion of the same quicksort algorithm
+    /// used for [`sort_unstable`].
+    ///
+    /// [`sort_unstable`]: #method.sort_unstable
+    ///
+    /// # Panics
+    ///
+    /// Panics when `index >= len()`, meaning it always panics on empty slices.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// #![feature(slice_partition_at_index)]
+    ///
+    /// let mut v = [-5i32, 4, 1, -3, 2];
+    ///
+    /// // Find the median as if the slice were sorted in descending order.
+    /// v.partition_at_index_by(2, |a, b| b.cmp(a));
+    ///
+    /// // We are only guaranteed the slice will be one of the following, based on the way we sort
+    /// // about the specified index.
+    /// assert!(v == [2, 4, 1, -5, -3] ||
+    ///         v == [2, 4, 1, -3, -5] ||
+    ///         v == [4, 2, 1, -5, -3] ||
+    ///         v == [4, 2, 1, -3, -5]);
+    /// ```
+    #[unstable(feature = "slice_partition_at_index", issue = "55300")]
+    #[inline]
+    pub fn partition_at_index_by<F>(&mut self, index: usize, mut compare: F)
+                                    -> (&mut [T], &mut T, &mut [T])
+        where F: FnMut(&T, &T) -> Ordering
+    {
+        let mut f = |a: &T, b: &T| compare(a, b) == Less;
+        sort::partition_at_index(self, index, &mut f)
+    }
+
+    /// Reorder the slice with a key extraction function such that the element at `index` is at its
+    /// final sorted position.
+    ///
+    /// This reordering has the additional property that any value at position `i < index` will be
+    /// less than or equal to any value at a position `j > index` using the key extraction function.
+    /// Additionally, this reordering is unstable (i.e. any number of equal elements may end up at
+    /// position `index`), in-place (i.e. does not allocate), and `O(n)` worst-case. This function
+    /// is also known as "kth element" in other libraries. It returns a triplet of the following
+    /// values: all elements less than the one at the given index, the value at the given index, and
+    /// all elements greater than the one at the given index, using the provided key extraction
+    /// function.
+    ///
+    /// # Current implementation
+    ///
+    /// The current algorithm is based on the quickselect portion of the same quicksort algorithm
+    /// used for [`sort_unstable`].
+    ///
+    /// [`sort_unstable`]: #method.sort_unstable
+    ///
+    /// # Panics
+    ///
+    /// Panics when `index >= len()`, meaning it always panics on empty slices.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// #![feature(slice_partition_at_index)]
+    ///
+    /// let mut v = [-5i32, 4, 1, -3, 2];
+    ///
+    /// // Return the median as if the array were sorted according to absolute value.
+    /// v.partition_at_index_by_key(2, |a| a.abs());
+    ///
+    /// // We are only guaranteed the slice will be one of the following, based on the way we sort
+    /// // about the specified index.
+    /// assert!(v == [1, 2, -3, 4, -5] ||
+    ///         v == [1, 2, -3, -5, 4] ||
+    ///         v == [2, 1, -3, 4, -5] ||
+    ///         v == [2, 1, -3, -5, 4]);
+    /// ```
+    #[unstable(feature = "slice_partition_at_index", issue = "55300")]
+    #[inline]
+    pub fn partition_at_index_by_key<K, F>(&mut self, index: usize, mut f: F)
+                                           -> (&mut [T], &mut T, &mut [T])
+        where F: FnMut(&T) -> K, K: Ord
+    {
+        let mut g = |a: &T, b: &T| f(a).lt(&f(b));
+        sort::partition_at_index(self, index, &mut g)
     }
 
     /// Moves all consecutive repeated elements to the end of the slice according to the
@@ -1791,7 +1933,7 @@ impl<T> [T] {
     /// let mut a = ['a', 'b', 'c', 'd', 'e', 'f'];
     /// a[1..5].rotate_left(1);
     /// assert_eq!(a, ['a', 'c', 'd', 'e', 'b', 'f']);
-   /// ```
+    /// ```
     #[stable(feature = "slice_rotate", since = "1.26.0")]
     pub fn rotate_left(&mut self, mid: usize) {
         assert!(mid <= self.len());
@@ -2163,7 +2305,7 @@ impl<T> [T] {
     /// This method has no purpose when either input element `T` or output element `U` are
     /// zero-sized and will return the original slice without splitting anything.
     ///
-    /// # Unsafety
+    /// # Safety
     ///
     /// This method is essentially a `transmute` with respect to the elements in the returned
     /// middle slice, so all the usual caveats pertaining to `transmute::<T, U>` also apply here.
@@ -2216,7 +2358,7 @@ impl<T> [T] {
     /// This method has no purpose when either input element `T` or output element `U` are
     /// zero-sized and will return the original slice without splitting anything.
     ///
-    /// # Unsafety
+    /// # Safety
     ///
     /// This method is essentially a `transmute` with respect to the elements in the returned
     /// middle slice, so all the usual caveats pertaining to `transmute::<T, U>` also apply here.
@@ -2257,6 +2399,77 @@ impl<T> [T] {
              from_raw_parts_mut(mut_ptr as *mut U, us_len),
              from_raw_parts_mut(mut_ptr.add(rest.len() - ts_len), ts_len))
         }
+    }
+
+    /// Checks if the elements of this slice are sorted.
+    ///
+    /// That is, for each element `a` and its following element `b`, `a <= b` must hold. If the
+    /// slice yields exactly zero or one element, `true` is returned.
+    ///
+    /// Note that if `Self::Item` is only `PartialOrd`, but not `Ord`, the above definition
+    /// implies that this function returns `false` if any two consecutive items are not
+    /// comparable.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// #![feature(is_sorted)]
+    /// let empty: [i32; 0] = [];
+    ///
+    /// assert!([1, 2, 2, 9].is_sorted());
+    /// assert!(![1, 3, 2, 4].is_sorted());
+    /// assert!([0].is_sorted());
+    /// assert!(empty.is_sorted());
+    /// assert!(![0.0, 1.0, std::f32::NAN].is_sorted());
+    /// ```
+    #[inline]
+    #[unstable(feature = "is_sorted", reason = "new API", issue = "53485")]
+    pub fn is_sorted(&self) -> bool
+    where
+        T: PartialOrd,
+    {
+        self.is_sorted_by(|a, b| a.partial_cmp(b))
+    }
+
+    /// Checks if the elements of this slice are sorted using the given comparator function.
+    ///
+    /// Instead of using `PartialOrd::partial_cmp`, this function uses the given `compare`
+    /// function to determine the ordering of two elements. Apart from that, it's equivalent to
+    /// [`is_sorted`]; see its documentation for more information.
+    ///
+    /// [`is_sorted`]: #method.is_sorted
+    #[unstable(feature = "is_sorted", reason = "new API", issue = "53485")]
+    pub fn is_sorted_by<F>(&self, mut compare: F) -> bool
+    where
+        F: FnMut(&T, &T) -> Option<Ordering>
+    {
+        self.iter().is_sorted_by(|a, b| compare(*a, *b))
+    }
+
+    /// Checks if the elements of this slice are sorted using the given key extraction function.
+    ///
+    /// Instead of comparing the slice's elements directly, this function compares the keys of the
+    /// elements, as determined by `f`. Apart from that, it's equivalent to [`is_sorted`]; see its
+    /// documentation for more information.
+    ///
+    /// [`is_sorted`]: #method.is_sorted
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// #![feature(is_sorted)]
+    ///
+    /// assert!(["c", "bb", "aaa"].is_sorted_by_key(|s| s.len()));
+    /// assert!(![-2i32, -1, 0, 3].is_sorted_by_key(|n| n.abs()));
+    /// ```
+    #[inline]
+    #[unstable(feature = "is_sorted", reason = "new API", issue = "53485")]
+    pub fn is_sorted_by_key<F, K>(&self, mut f: F) -> bool
+    where
+        F: FnMut(&T) -> K,
+        K: PartialOrd
+    {
+        self.is_sorted_by(|a, b| f(a).partial_cmp(&f(b)))
     }
 }
 
@@ -2320,7 +2533,6 @@ impl [u8] {
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-#[rustc_on_unimplemented = "slice indices are of type `usize` or ranges of `usize`"]
 impl<T, I> ops::Index<I> for [T]
     where I: SliceIndex<[T]>
 {
@@ -2333,7 +2545,6 @@ impl<T, I> ops::Index<I> for [T]
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-#[rustc_on_unimplemented = "slice indices are of type `usize` or ranges of `usize`"]
 impl<T, I> ops::IndexMut<I> for [T]
     where I: SliceIndex<[T]>
 {
@@ -2384,7 +2595,19 @@ mod private_slice_index {
 
 /// A helper trait used for indexing operations.
 #[stable(feature = "slice_get_slice", since = "1.28.0")]
-#[rustc_on_unimplemented = "slice indices are of type `usize` or ranges of `usize`"]
+#[rustc_on_unimplemented(
+    on(
+        T = "str",
+        label = "string indices are ranges of `usize`",
+    ),
+    on(
+        all(any(T = "str", T = "&str", T = "std::string::String"), _Self="{integer}"),
+        note="you can use `.chars().nth()` or `.bytes().nth()`
+see chapter in The Book <https://doc.rust-lang.org/book/ch08-02-strings.html#indexing-into-strings>"
+    ),
+    message = "the type `{T}` cannot be indexed by `{Self}`",
+    label = "slice indices are of type `usize` or ranges of `usize`",
+)]
 pub trait SliceIndex<T: ?Sized>: private_slice_index::Sealed {
     /// The output type returned by methods.
     #[stable(feature = "slice_get_slice", since = "1.28.0")]
@@ -2781,7 +3004,13 @@ macro_rules! len {
 
 // The shared definition of the `Iter` and `IterMut` iterators
 macro_rules! iterator {
-    (struct $name:ident -> $ptr:ty, $elem:ty, $raw_mut:tt, $( $mut_:tt )*) => {
+    (
+        struct $name:ident -> $ptr:ty,
+        $elem:ty,
+        $raw_mut:tt,
+        {$( $mut_:tt )*},
+        {$($extra:tt)*}
+    ) => {
         impl<'a, T> $name<'a, T> {
             // Helper function for creating a slice from the iterator.
             #[inline(always)]
@@ -2821,7 +3050,7 @@ macro_rules! iterator {
         }
 
         #[stable(feature = "rust1", since = "1.0.0")]
-        impl<'a, T> ExactSizeIterator for $name<'a, T> {
+        impl<T> ExactSizeIterator for $name<'_, T> {
             #[inline(always)]
             fn len(&self) -> usize {
                 len!(self)
@@ -2958,6 +3187,8 @@ macro_rules! iterator {
                         i
                     })
             }
+
+            $($extra)*
         }
 
         #[stable(feature = "rust1", since = "1.0.0")]
@@ -3014,10 +3245,10 @@ macro_rules! iterator {
         }
 
         #[stable(feature = "fused", since = "1.26.0")]
-        impl<'a, T> FusedIterator for $name<'a, T> {}
+        impl<T> FusedIterator for $name<'_, T> {}
 
         #[unstable(feature = "trusted_len", issue = "37572")]
-        unsafe impl<'a, T> TrustedLen for $name<'a, T> {}
+        unsafe impl<T> TrustedLen for $name<'_, T> {}
     }
 }
 
@@ -3065,7 +3296,7 @@ unsafe impl<T: Sync> Sync for Iter<'_, T> {}
 unsafe impl<T: Sync> Send for Iter<'_, T> {}
 
 impl<'a, T> Iter<'a, T> {
-    /// View the underlying data as a subslice of the original data.
+    /// Views the underlying data as a subslice of the original data.
     ///
     /// This has the same lifetime as the original slice, and so the
     /// iterator can continue to be used while this exists.
@@ -3095,7 +3326,17 @@ impl<'a, T> Iter<'a, T> {
     }
 }
 
-iterator!{struct Iter -> *const T, &'a T, const, /* no mut */}
+iterator!{struct Iter -> *const T, &'a T, const, {/* no mut */}, {
+    fn is_sorted_by<F>(self, mut compare: F) -> bool
+    where
+        Self: Sized,
+        F: FnMut(&Self::Item, &Self::Item) -> Option<Ordering>,
+    {
+        self.as_slice().windows(2).all(|w| {
+            compare(&&w[0], &&w[1]).map(|o| o != Ordering::Greater).unwrap_or(false)
+        })
+    }
+}}
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T> Clone for Iter<'_, T> {
@@ -3157,7 +3398,7 @@ unsafe impl<T: Sync> Sync for IterMut<'_, T> {}
 unsafe impl<T: Send> Send for IterMut<'_, T> {}
 
 impl<'a, T> IterMut<'a, T> {
-    /// View the underlying data as a subslice of the original data.
+    /// Views the underlying data as a subslice of the original data.
     ///
     /// To avoid creating `&mut` references that alias, this is forced
     /// to consume the iterator.
@@ -3194,9 +3435,37 @@ impl<'a, T> IterMut<'a, T> {
     pub fn into_slice(self) -> &'a mut [T] {
         unsafe { from_raw_parts_mut(self.ptr, len!(self)) }
     }
+
+    /// Views the underlying data as a subslice of the original data.
+    ///
+    /// To avoid creating `&mut [T]` references that alias, the returned slice
+    /// borrows its lifetime from the iterator the method is applied on.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```
+    /// # #![feature(slice_iter_mut_as_slice)]
+    /// let mut slice: &mut [usize] = &mut [1, 2, 3];
+    ///
+    /// // First, we get the iterator:
+    /// let mut iter = slice.iter_mut();
+    /// // So if we check what the `as_slice` method returns here, we have "[1, 2, 3]":
+    /// assert_eq!(iter.as_slice(), &[1, 2, 3]);
+    ///
+    /// // Next, we move to the second element of the slice:
+    /// iter.next();
+    /// // Now `as_slice` returns "[2, 3]":
+    /// assert_eq!(iter.as_slice(), &[2, 3]);
+    /// ```
+    #[unstable(feature = "slice_iter_mut_as_slice", reason = "recently added", issue = "58957")]
+    pub fn as_slice(&self) -> &[T] {
+        self.make_slice()
+    }
 }
 
-iterator!{struct IterMut -> *mut T, &'a mut T, mut, mut}
+iterator!{struct IterMut -> *mut T, &'a mut T, mut, {mut}, {}}
 
 /// An internal abstraction over the splitting iterators, so that
 /// splitn, splitn_mut etc can be implemented once.
@@ -3745,6 +4014,19 @@ impl<'a, T> DoubleEndedIterator for Windows<'a, T> {
             ret
         }
     }
+
+    #[inline]
+    fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
+        let (end, overflow) = self.v.len().overflowing_sub(n);
+        if end < self.size || overflow {
+            self.v = &[];
+            None
+        } else {
+            let ret = &self.v[end-self.size..end];
+            self.v = &self.v[..end-1];
+            Some(ret)
+        }
+    }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -4033,7 +4315,7 @@ pub struct ChunksExact<'a, T:'a> {
 }
 
 impl<'a, T> ChunksExact<'a, T> {
-    /// Return the remainder of the original slice that is not going to be
+    /// Returns the remainder of the original slice that is not going to be
     /// returned by the iterator. The returned slice has at most `chunk_size-1`
     /// elements.
     #[stable(feature = "chunks_exact", since = "1.31.0")]
@@ -4157,7 +4439,7 @@ pub struct ChunksExactMut<'a, T:'a> {
 }
 
 impl<'a, T> ChunksExactMut<'a, T> {
-    /// Return the remainder of the original slice that is not going to be
+    /// Returns the remainder of the original slice that is not going to be
     /// returned by the iterator. The returned slice has at most `chunk_size-1`
     /// elements.
     #[stable(feature = "chunks_exact", since = "1.31.0")]
@@ -4271,8 +4553,8 @@ pub struct RChunks<'a, T:'a> {
 
 // FIXME(#26925) Remove in favor of `#[derive(Clone)]`
 #[stable(feature = "rchunks", since = "1.31.0")]
-impl<'a, T> Clone for RChunks<'a, T> {
-    fn clone(&self) -> RChunks<'a, T> {
+impl<T> Clone for RChunks<'_, T> {
+    fn clone(&self) -> Self {
         RChunks {
             v: self.v,
             chunk_size: self.chunk_size,
@@ -4361,13 +4643,13 @@ impl<'a, T> DoubleEndedIterator for RChunks<'a, T> {
 }
 
 #[stable(feature = "rchunks", since = "1.31.0")]
-impl<'a, T> ExactSizeIterator for RChunks<'a, T> {}
+impl<T> ExactSizeIterator for RChunks<'_, T> {}
 
 #[unstable(feature = "trusted_len", issue = "37572")]
-unsafe impl<'a, T> TrustedLen for RChunks<'a, T> {}
+unsafe impl<T> TrustedLen for RChunks<'_, T> {}
 
 #[stable(feature = "rchunks", since = "1.31.0")]
-impl<'a, T> FusedIterator for RChunks<'a, T> {}
+impl<T> FusedIterator for RChunks<'_, T> {}
 
 #[doc(hidden)]
 #[stable(feature = "rchunks", since = "1.31.0")]
@@ -4486,13 +4768,13 @@ impl<'a, T> DoubleEndedIterator for RChunksMut<'a, T> {
 }
 
 #[stable(feature = "rchunks", since = "1.31.0")]
-impl<'a, T> ExactSizeIterator for RChunksMut<'a, T> {}
+impl<T> ExactSizeIterator for RChunksMut<'_, T> {}
 
 #[unstable(feature = "trusted_len", issue = "37572")]
-unsafe impl<'a, T> TrustedLen for RChunksMut<'a, T> {}
+unsafe impl<T> TrustedLen for RChunksMut<'_, T> {}
 
 #[stable(feature = "rchunks", since = "1.31.0")]
-impl<'a, T> FusedIterator for RChunksMut<'a, T> {}
+impl<T> FusedIterator for RChunksMut<'_, T> {}
 
 #[doc(hidden)]
 #[stable(feature = "rchunks", since = "1.31.0")]
@@ -4529,7 +4811,7 @@ pub struct RChunksExact<'a, T:'a> {
 }
 
 impl<'a, T> RChunksExact<'a, T> {
-    /// Return the remainder of the original slice that is not going to be
+    /// Returns the remainder of the original slice that is not going to be
     /// returned by the iterator. The returned slice has at most `chunk_size-1`
     /// elements.
     #[stable(feature = "rchunks", since = "1.31.0")]
@@ -4617,10 +4899,10 @@ impl<'a, T> ExactSizeIterator for RChunksExact<'a, T> {
 }
 
 #[unstable(feature = "trusted_len", issue = "37572")]
-unsafe impl<'a, T> TrustedLen for RChunksExact<'a, T> {}
+unsafe impl<T> TrustedLen for RChunksExact<'_, T> {}
 
 #[stable(feature = "rchunks", since = "1.31.0")]
-impl<'a, T> FusedIterator for RChunksExact<'a, T> {}
+impl<T> FusedIterator for RChunksExact<'_, T> {}
 
 #[doc(hidden)]
 #[stable(feature = "rchunks", since = "1.31.0")]
@@ -4654,7 +4936,7 @@ pub struct RChunksExactMut<'a, T:'a> {
 }
 
 impl<'a, T> RChunksExactMut<'a, T> {
-    /// Return the remainder of the original slice that is not going to be
+    /// Returns the remainder of the original slice that is not going to be
     /// returned by the iterator. The returned slice has at most `chunk_size-1`
     /// elements.
     #[stable(feature = "rchunks", since = "1.31.0")]
@@ -4728,17 +5010,17 @@ impl<'a, T> DoubleEndedIterator for RChunksExactMut<'a, T> {
 }
 
 #[stable(feature = "rchunks", since = "1.31.0")]
-impl<'a, T> ExactSizeIterator for RChunksExactMut<'a, T> {
+impl<T> ExactSizeIterator for RChunksExactMut<'_, T> {
     fn is_empty(&self) -> bool {
         self.v.is_empty()
     }
 }
 
 #[unstable(feature = "trusted_len", issue = "37572")]
-unsafe impl<'a, T> TrustedLen for RChunksExactMut<'a, T> {}
+unsafe impl<T> TrustedLen for RChunksExactMut<'_, T> {}
 
 #[stable(feature = "rchunks", since = "1.31.0")]
-impl<'a, T> FusedIterator for RChunksExactMut<'a, T> {}
+impl<T> FusedIterator for RChunksExactMut<'_, T> {}
 
 #[doc(hidden)]
 #[stable(feature = "rchunks", since = "1.31.0")]

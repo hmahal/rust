@@ -1,13 +1,3 @@
-// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Manually manage memory through raw pointers.
 //!
 //! *[See also the pointer primitive types](../../std/primitive.pointer.html).*
@@ -22,7 +12,7 @@
 //! to access only a single value, in which case the documentation omits the size
 //! and implicitly assumes it to be `size_of::<T>()` bytes.
 //!
-//! The precise rules for validity are not determined yet.  The guarantees that are
+//! The precise rules for validity are not determined yet. The guarantees that are
 //! provided at this point are very minimal:
 //!
 //! * A [null] pointer is *never* valid, not even for accesses of [size zero][zst].
@@ -80,7 +70,6 @@ use fmt;
 use hash;
 use marker::{PhantomData, Unsize};
 use mem::{self, MaybeUninit};
-use nonzero::NonZero;
 
 use cmp::Ordering::{self, Less, Equal, Greater};
 
@@ -115,7 +104,7 @@ pub use intrinsics::write_bytes;
 ///
 /// * `to_drop` must be [valid] for reads.
 ///
-/// * `to_drop` must be properly aligned.  See the example below for how to drop
+/// * `to_drop` must be properly aligned. See the example below for how to drop
 ///   an unaligned pointer.
 ///
 /// Additionally, if `T` is not [`Copy`], using the pointed-to value after
@@ -146,7 +135,7 @@ pub use intrinsics::write_bytes;
 /// unsafe {
 ///     // Get a raw pointer to the last element in `v`.
 ///     let ptr = &mut v[1] as *mut _;
-///     // Shorten `v` to prevent the last item from being dropped.  We do that first,
+///     // Shorten `v` to prevent the last item from being dropped. We do that first,
 ///     // to prevent issues if the `drop_in_place` below panics.
 ///     v.set_len(1);
 ///     // Without a call `drop_in_place`, the last item would never be dropped,
@@ -307,12 +296,12 @@ pub const fn null_mut<T>() -> *mut T { 0 as *mut T }
 pub unsafe fn swap<T>(x: *mut T, y: *mut T) {
     // Give ourselves some scratch space to work with.
     // We do not have to worry about drops: `MaybeUninit` does nothing when dropped.
-    let mut tmp = MaybeUninit::<T>::uninitialized();
+    let mut tmp = MaybeUninit::<T>::uninit();
 
     // Perform the swap
     copy_nonoverlapping(x, tmp.as_mut_ptr(), 1);
     copy(y, x, 1); // `x` and `y` may overlap
-    copy_nonoverlapping(tmp.get_ref(), y, 1);
+    copy_nonoverlapping(tmp.as_ptr(), y, 1);
 }
 
 /// Swaps `count * size_of::<T>()` bytes between the two regions of memory
@@ -399,7 +388,7 @@ unsafe fn swap_nonoverlapping_bytes(x: *mut u8, y: *mut u8, len: usize) {
     while i + block_size <= len {
         // Create some uninitialized memory as scratch space
         // Declaring `t` here avoids aligning the stack when this loop is unused
-        let mut t = mem::MaybeUninit::<Block>::uninitialized();
+        let mut t = mem::MaybeUninit::<Block>::uninit();
         let t = t.as_mut_ptr() as *mut u8;
         let x = x.add(i);
         let y = y.add(i);
@@ -414,7 +403,7 @@ unsafe fn swap_nonoverlapping_bytes(x: *mut u8, y: *mut u8, len: usize) {
 
     if i < len {
         // Swap any remaining bytes
-        let mut t = mem::MaybeUninit::<UnalignedBlock>::uninitialized();
+        let mut t = mem::MaybeUninit::<UnalignedBlock>::uninit();
         let rem = len - i;
 
         let t = t.as_mut_ptr() as *mut u8;
@@ -542,7 +531,7 @@ pub unsafe fn replace<T>(dst: *mut T, mut src: T) -> T {
 ///
 /// `read` creates a bitwise copy of `T`, regardless of whether `T` is [`Copy`].
 /// If `T` is not [`Copy`], using both the returned value and the value at
-/// `*src` can violate memory safety.  Note that assigning to `*src` counts as a
+/// `*src` can violate memory safety. Note that assigning to `*src` counts as a
 /// use because it will attempt to drop the value at `*src`.
 ///
 /// [`write`] can be used to overwrite data without causing it to be dropped.
@@ -582,9 +571,9 @@ pub unsafe fn replace<T>(dst: *mut T, mut src: T) -> T {
 #[inline]
 #[stable(feature = "rust1", since = "1.0.0")]
 pub unsafe fn read<T>(src: *const T) -> T {
-    let mut tmp = MaybeUninit::<T>::uninitialized();
+    let mut tmp = MaybeUninit::<T>::uninit();
     copy_nonoverlapping(src, tmp.as_mut_ptr(), 1);
-    tmp.into_inner()
+    tmp.assume_init()
 }
 
 /// Reads the value from `src` without moving it. This leaves the
@@ -599,10 +588,10 @@ pub unsafe fn read<T>(src: *const T) -> T {
 /// * `src` must be [valid] for reads.
 ///
 /// Like [`read`], `read_unaligned` creates a bitwise copy of `T`, regardless of
-/// whether `T` is [`Copy`].  If `T` is not [`Copy`], using both the returned
+/// whether `T` is [`Copy`]. If `T` is not [`Copy`], using both the returned
 /// value and the value at `*src` can [violate memory safety][read-ownership].
 ///
-/// Note that even if `T` has size `0`, the pointer must be non-NULL and properly aligned.
+/// Note that even if `T` has size `0`, the pointer must be non-NULL.
 ///
 /// [`Copy`]: ../marker/trait.Copy.html
 /// [`read`]: ./fn.read.html
@@ -649,11 +638,11 @@ pub unsafe fn read<T>(src: *const T) -> T {
 #[inline]
 #[stable(feature = "ptr_unaligned", since = "1.17.0")]
 pub unsafe fn read_unaligned<T>(src: *const T) -> T {
-    let mut tmp = MaybeUninit::<T>::uninitialized();
+    let mut tmp = MaybeUninit::<T>::uninit();
     copy_nonoverlapping(src as *const u8,
                         tmp.as_mut_ptr() as *mut u8,
                         mem::size_of::<T>());
-    tmp.into_inner()
+    tmp.assume_init()
 }
 
 /// Overwrites a memory location with the given value without reading or
@@ -770,7 +759,7 @@ pub unsafe fn write<T>(dst: *mut T, src: T) {
 ///
 /// * `dst` must be [valid] for writes.
 ///
-/// Note that even if `T` has size `0`, the pointer must be non-NULL and properly aligned.
+/// Note that even if `T` has size `0`, the pointer must be non-NULL.
 ///
 /// [valid]: ../ptr/index.html#safety
 ///
@@ -836,7 +825,7 @@ pub unsafe fn write_unaligned<T>(dst: *mut T, src: T) {
 ///
 /// The compiler shouldn't change the relative order or number of volatile
 /// memory operations. However, volatile memory operations on zero-sized types
-/// (e.g., if a zero-sized type is passed to `read_volatile`) are no-ops
+/// (e.g., if a zero-sized type is passed to `read_volatile`) are noops
 /// and may be ignored.
 ///
 /// [c11]: http://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf
@@ -850,7 +839,7 @@ pub unsafe fn write_unaligned<T>(dst: *mut T, src: T) {
 /// * `src` must be properly aligned.
 ///
 /// Like [`read`], `read_unaligned` creates a bitwise copy of `T`, regardless of
-/// whether `T` is [`Copy`].  If `T` is not [`Copy`], using both the returned
+/// whether `T` is [`Copy`]. If `T` is not [`Copy`], using both the returned
 /// value and the value at `*src` can [violate memory safety][read-ownership].
 /// However, storing non-[`Copy`] types in volatile memory is almost certainly
 /// incorrect.
@@ -860,6 +849,7 @@ pub unsafe fn write_unaligned<T>(dst: *mut T, src: T) {
 /// [valid]: ../ptr/index.html#safety
 /// [`Copy`]: ../marker/trait.Copy.html
 /// [`read`]: ./fn.read.html
+/// [read-ownership]: ./fn.read.html#ownership-of-the-returned-value
 ///
 /// Just like in C, whether an operation is volatile has no bearing whatsoever
 /// on questions involving concurrent access from multiple threads. Volatile
@@ -913,7 +903,7 @@ pub unsafe fn read_volatile<T>(src: *const T) -> T {
 ///
 /// The compiler shouldn't change the relative order or number of volatile
 /// memory operations. However, volatile memory operations on zero-sized types
-/// (e.g., if a zero-sized type is passed to `write_volatile`) are no-ops
+/// (e.g., if a zero-sized type is passed to `write_volatile`) are noops
 /// and may be ignored.
 ///
 /// [c11]: http://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf
@@ -1103,7 +1093,7 @@ impl<T: ?Sized> *const T {
     /// unless `x` and `y` point into the same allocated object.
     ///
     /// Always use `.offset(count)` instead when possible, because `offset`
-    /// allows the compiler to optimize better.  If you need to cross object
+    /// allows the compiler to optimize better. If you need to cross object
     /// boundaries, cast the pointer to an integer and do the arithmetic there.
     ///
     /// # Examples
@@ -1722,7 +1712,7 @@ impl<T: ?Sized> *mut T {
     /// unless `x` and `y` point into the same allocated object.
     ///
     /// Always use `.offset(count)` instead when possible, because `offset`
-    /// allows the compiler to optimize better.  If you need to cross object
+    /// allows the compiler to optimize better. If you need to cross object
     /// boundaries, cast the pointer to an integer and do the arithmetic there.
     ///
     /// # Examples
@@ -2483,7 +2473,7 @@ impl<T: ?Sized> PartialEq for *mut T {
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T: ?Sized> Eq for *mut T {}
 
-/// Compare raw pointers for equality.
+/// Compares raw pointers for equality.
 ///
 /// This is the same as using the `==` operator, but less generic:
 /// the arguments have to be `*const T` raw pointers,
@@ -2505,10 +2495,56 @@ impl<T: ?Sized> Eq for *mut T {}
 /// let other_five_ref = &other_five;
 ///
 /// assert!(five_ref == same_five_ref);
-/// assert!(five_ref == other_five_ref);
-///
 /// assert!(ptr::eq(five_ref, same_five_ref));
+///
+/// assert!(five_ref == other_five_ref);
 /// assert!(!ptr::eq(five_ref, other_five_ref));
+/// ```
+///
+/// Slices are also compared by their length (fat pointers):
+///
+/// ```
+/// let a = [1, 2, 3];
+/// assert!(std::ptr::eq(&a[..3], &a[..3]));
+/// assert!(!std::ptr::eq(&a[..2], &a[..3]));
+/// assert!(!std::ptr::eq(&a[0..2], &a[1..3]));
+/// ```
+///
+/// Traits are also compared by their implementation:
+///
+/// ```
+/// #[repr(transparent)]
+/// struct Wrapper { member: i32 }
+///
+/// trait Trait {}
+/// impl Trait for Wrapper {}
+/// impl Trait for i32 {}
+///
+/// fn main() {
+///     let wrapper = Wrapper { member: 10 };
+///
+///     // Pointers have equal addresses.
+///     assert!(std::ptr::eq(
+///         &wrapper as *const Wrapper as *const u8,
+///         &wrapper.member as *const i32 as *const u8
+///     ));
+///
+///     // Objects have equal addresses, but `Trait` has different implementations.
+///     assert!(!std::ptr::eq(
+///         &wrapper as &dyn Trait,
+///         &wrapper.member as &dyn Trait,
+///     ));
+///     assert!(!std::ptr::eq(
+///         &wrapper as &dyn Trait as *const dyn Trait,
+///         &wrapper.member as &dyn Trait as *const dyn Trait,
+///     ));
+///
+///     // Converting the reference to a `*const u8` compares by address.
+///     assert!(std::ptr::eq(
+///         &wrapper as &dyn Trait as *const dyn Trait as *const u8,
+///         &wrapper.member as &dyn Trait as *const dyn Trait as *const u8,
+///     ));
+/// }
 /// ```
 #[stable(feature = "ptr_eq", since = "1.17.0")]
 #[inline]
@@ -2525,7 +2561,6 @@ pub fn eq<T: ?Sized>(a: *const T, b: *const T) -> bool {
 /// # Examples
 ///
 /// ```
-/// #![feature(ptr_hash)]
 /// use std::collections::hash_map::DefaultHasher;
 /// use std::hash::{Hash, Hasher};
 /// use std::ptr;
@@ -2543,8 +2578,8 @@ pub fn eq<T: ?Sized>(a: *const T, b: *const T) -> bool {
 ///
 /// assert_eq!(actual, expected);
 /// ```
-#[unstable(feature = "ptr_hash", reason = "newly added", issue = "56286")]
-pub fn hash<T, S: hash::Hasher>(hashee: *const T, into: &mut S) {
+#[stable(feature = "ptr_hash", since = "1.35.0")]
+pub fn hash<T: ?Sized, S: hash::Hasher>(hashee: *const T, into: &mut S) {
     use hash::Hash;
     hashee.hash(into);
 }
@@ -2728,8 +2763,9 @@ impl<T: ?Sized> PartialOrd for *mut T {
                      (if you also use #[may_dangle]), Send, and/or Sync")]
 #[doc(hidden)]
 #[repr(transparent)]
+#[rustc_layout_scalar_valid_range_start(1)]
 pub struct Unique<T: ?Sized> {
-    pointer: NonZero<*const T>,
+    pointer: *const T,
     // NOTE: this marker has no consequences for variance, but is necessary
     // for dropck to understand that we logically own a `T`.
     //
@@ -2786,21 +2822,21 @@ impl<T: ?Sized> Unique<T> {
     ///
     /// `ptr` must be non-null.
     pub const unsafe fn new_unchecked(ptr: *mut T) -> Self {
-        Unique { pointer: NonZero(ptr as _), _marker: PhantomData }
+        Unique { pointer: ptr as _, _marker: PhantomData }
     }
 
     /// Creates a new `Unique` if `ptr` is non-null.
     pub fn new(ptr: *mut T) -> Option<Self> {
         if !ptr.is_null() {
-            Some(Unique { pointer: unsafe { NonZero(ptr as _) }, _marker: PhantomData })
+            Some(unsafe { Unique { pointer: ptr as _, _marker: PhantomData } })
         } else {
             None
         }
     }
 
     /// Acquires the underlying `*mut` pointer.
-    pub fn as_ptr(self) -> *mut T {
-        self.pointer.0 as *mut T
+    pub const fn as_ptr(self) -> *mut T {
+        self.pointer as *mut T
     }
 
     /// Dereferences the content.
@@ -2846,23 +2882,23 @@ impl<T: ?Sized> fmt::Pointer for Unique<T> {
 }
 
 #[unstable(feature = "ptr_internals", issue = "0")]
-impl<'a, T: ?Sized> From<&'a mut T> for Unique<T> {
-    fn from(reference: &'a mut T) -> Self {
-        Unique { pointer: unsafe { NonZero(reference as _) }, _marker: PhantomData }
+impl<T: ?Sized> From<&mut T> for Unique<T> {
+    fn from(reference: &mut T) -> Self {
+        unsafe { Unique { pointer: reference as *mut T, _marker: PhantomData } }
     }
 }
 
 #[unstable(feature = "ptr_internals", issue = "0")]
-impl<'a, T: ?Sized> From<&'a T> for Unique<T> {
-    fn from(reference: &'a T) -> Self {
-        Unique { pointer: unsafe { NonZero(reference as _) }, _marker: PhantomData }
+impl<T: ?Sized> From<&T> for Unique<T> {
+    fn from(reference: &T) -> Self {
+        unsafe { Unique { pointer: reference as *const T, _marker: PhantomData } }
     }
 }
 
 #[unstable(feature = "ptr_internals", issue = "0")]
 impl<'a, T: ?Sized> From<NonNull<T>> for Unique<T> {
     fn from(p: NonNull<T>) -> Self {
-        Unique { pointer: p.pointer, _marker: PhantomData }
+        unsafe { Unique { pointer: p.pointer, _marker: PhantomData } }
     }
 }
 
@@ -2878,15 +2914,27 @@ impl<'a, T: ?Sized> From<NonNull<T>> for Unique<T> {
 /// However the pointer may still dangle if it isn't dereferenced.
 ///
 /// Unlike `*mut T`, `NonNull<T>` is covariant over `T`. If this is incorrect
-/// for your use case, you should include some PhantomData in your type to
+/// for your use case, you should include some [`PhantomData`] in your type to
 /// provide invariance, such as `PhantomData<Cell<T>>` or `PhantomData<&'a mut T>`.
 /// Usually this won't be necessary; covariance is correct for most safe abstractions,
-/// such as Box, Rc, Arc, Vec, and LinkedList. This is the case because they
+/// such as `Box`, `Rc`, `Arc`, `Vec`, and `LinkedList`. This is the case because they
 /// provide a public API that follows the normal shared XOR mutable rules of Rust.
+///
+/// Notice that `NonNull<T>` has a `From` instance for `&T`. However, this does
+/// not change the fact that mutating through a (pointer derived from a) shared
+/// reference is undefined behavior unless the mutation happens inside an
+/// [`UnsafeCell<T>`]. The same goes for creating a mutable reference from a shared
+/// reference. When using this `From` instance without an `UnsafeCell<T>`,
+/// it is your responsibility to ensure that `as_mut` is never called, and `as_ptr`
+/// is never used for mutation.
+///
+/// [`PhantomData`]: ../marker/struct.PhantomData.html
+/// [`UnsafeCell<T>`]: ../cell/struct.UnsafeCell.html
 #[stable(feature = "nonnull", since = "1.25.0")]
 #[repr(transparent)]
+#[rustc_layout_scalar_valid_range_start(1)]
 pub struct NonNull<T: ?Sized> {
-    pointer: NonZero<*const T>,
+    pointer: *const T,
 }
 
 /// `NonNull` pointers are not `Send` because the data they reference may be aliased.
@@ -2911,7 +2959,8 @@ impl<T: Sized> NonNull<T> {
     /// some other means.
     #[stable(feature = "nonnull", since = "1.25.0")]
     #[inline]
-    pub fn dangling() -> Self {
+    #[rustc_const_unstable(feature = "const_ptr_nonnull")]
+    pub const fn dangling() -> Self {
         unsafe {
             let ptr = mem::align_of::<T>() as *mut T;
             NonNull::new_unchecked(ptr)
@@ -2928,7 +2977,7 @@ impl<T: ?Sized> NonNull<T> {
     #[stable(feature = "nonnull", since = "1.25.0")]
     #[inline]
     pub const unsafe fn new_unchecked(ptr: *mut T) -> Self {
-        NonNull { pointer: unsafe { NonZero(ptr as _) } }
+        NonNull { pointer: ptr as _ }
     }
 
     /// Creates a new `NonNull` if `ptr` is non-null.
@@ -2946,7 +2995,7 @@ impl<T: ?Sized> NonNull<T> {
     #[stable(feature = "nonnull", since = "1.25.0")]
     #[inline]
     pub const fn as_ptr(self) -> *mut T {
-        self.pointer.0 as *mut T
+        self.pointer as *mut T
     }
 
     /// Dereferences the content.
@@ -2974,7 +3023,8 @@ impl<T: ?Sized> NonNull<T> {
     /// Cast to a pointer of another type
     #[stable(feature = "nonnull_cast", since = "1.27.0")]
     #[inline]
-    pub fn cast<U>(self) -> NonNull<U> {
+    #[rustc_const_unstable(feature = "const_ptr_nonnull")]
+    pub const fn cast<U>(self) -> NonNull<U> {
         unsafe {
             NonNull::new_unchecked(self.as_ptr() as *mut U)
         }
@@ -3050,22 +3100,22 @@ impl<T: ?Sized> hash::Hash for NonNull<T> {
 impl<T: ?Sized> From<Unique<T>> for NonNull<T> {
     #[inline]
     fn from(unique: Unique<T>) -> Self {
-        NonNull { pointer: unique.pointer }
+        unsafe { NonNull { pointer: unique.pointer } }
     }
 }
 
 #[stable(feature = "nonnull", since = "1.25.0")]
-impl<'a, T: ?Sized> From<&'a mut T> for NonNull<T> {
+impl<T: ?Sized> From<&mut T> for NonNull<T> {
     #[inline]
-    fn from(reference: &'a mut T) -> Self {
-        NonNull { pointer: unsafe { NonZero(reference as _) } }
+    fn from(reference: &mut T) -> Self {
+        unsafe { NonNull { pointer: reference as *mut T } }
     }
 }
 
 #[stable(feature = "nonnull", since = "1.25.0")]
-impl<'a, T: ?Sized> From<&'a T> for NonNull<T> {
+impl<T: ?Sized> From<&T> for NonNull<T> {
     #[inline]
-    fn from(reference: &'a T) -> Self {
-        NonNull { pointer: unsafe { NonZero(reference as _) } }
+    fn from(reference: &T) -> Self {
+        unsafe { NonNull { pointer: reference as *const T } }
     }
 }

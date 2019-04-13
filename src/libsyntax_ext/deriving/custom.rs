@@ -1,14 +1,8 @@
-// Copyright 2016 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
+use crate::proc_macro_impl::EXEC_STRATEGY;
+use crate::proc_macro_server;
 
 use errors::FatalError;
+use rustc_data_structures::sync::Lrc;
 use syntax::ast::{self, ItemKind, Attribute, Mac};
 use syntax::attr::{mark_used, mark_known};
 use syntax::source_map::Span;
@@ -19,15 +13,15 @@ use syntax::tokenstream;
 use syntax::visit::Visitor;
 use syntax_pos::DUMMY_SP;
 
-use proc_macro_impl::EXEC_STRATEGY;
-
 struct MarkAttrs<'a>(&'a [ast::Name]);
 
 impl<'a> Visitor<'a> for MarkAttrs<'a> {
     fn visit_attribute(&mut self, attr: &Attribute) {
-        if self.0.contains(&attr.name()) {
-            mark_used(attr);
-            mark_known(attr);
+        if let Some(ident) = attr.ident() {
+            if self.0.contains(&ident.name) {
+                mark_used(attr);
+                mark_known(attr);
+            }
         }
     }
 
@@ -35,15 +29,15 @@ impl<'a> Visitor<'a> for MarkAttrs<'a> {
 }
 
 pub struct ProcMacroDerive {
-    pub client: ::proc_macro::bridge::client::Client<
-        fn(::proc_macro::TokenStream) -> ::proc_macro::TokenStream,
+    pub client: proc_macro::bridge::client::Client<
+        fn(proc_macro::TokenStream) -> proc_macro::TokenStream,
     >,
     pub attrs: Vec<ast::Name>,
 }
 
 impl MultiItemModifier for ProcMacroDerive {
     fn expand(&self,
-              ecx: &mut ExtCtxt,
+              ecx: &mut ExtCtxt<'_>,
               span: Span,
               _meta_item: &ast::MetaItem,
               item: Annotatable)
@@ -74,11 +68,10 @@ impl MultiItemModifier for ProcMacroDerive {
         // Mark attributes as known, and used.
         MarkAttrs(&self.attrs).visit_item(&item);
 
-        let item = ecx.resolver.eliminate_crate_var(item);
-        let token = Token::interpolated(token::NtItem(item));
+        let token = Token::Interpolated(Lrc::new(token::NtItem(item)));
         let input = tokenstream::TokenTree::Token(DUMMY_SP, token).into();
 
-        let server = ::proc_macro_server::Rustc::new(ecx);
+        let server = proc_macro_server::Rustc::new(ecx);
         let stream = match self.client.run(&EXEC_STRATEGY, server, input) {
             Ok(stream) => stream,
             Err(e) => {

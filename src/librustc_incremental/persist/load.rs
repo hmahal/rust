@@ -1,13 +1,3 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Code to save/load the dep-graph from files.
 
 use rustc_data_structures::fx::FxHashMap;
@@ -19,7 +9,6 @@ use rustc::util::common::time_ext;
 use rustc_serialize::Decodable as RustcDecodable;
 use rustc_serialize::opaque::Decoder;
 use std::path::Path;
-use std;
 
 use super::data::*;
 use super::fs::*;
@@ -32,7 +21,6 @@ pub fn dep_graph_tcx_init<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>) {
     }
 
     tcx.allocate_metadata_dep_nodes();
-    tcx.precompute_in_scope_traits_hashes();
 }
 
 type WorkProductMap = FxHashMap<WorkProductId, WorkProduct>;
@@ -105,10 +93,10 @@ impl<T> MaybeAsync<T> {
     }
 }
 
+pub type DepGraphFuture = MaybeAsync<LoadResult<(PreviousDepGraph, WorkProductMap)>>;
+
 /// Launch a thread and load the dependency graph in the background.
-pub fn load_dep_graph(sess: &Session) ->
-    MaybeAsync<LoadResult<(PreviousDepGraph, WorkProductMap)>>
-{
+pub fn load_dep_graph(sess: &Session) -> DepGraphFuture {
     // Since `sess` isn't `Sync`, we perform all accesses to `sess`
     // before we fire the background thread.
 

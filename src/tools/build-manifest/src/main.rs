@@ -1,25 +1,16 @@
-// Copyright 2017 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
+#![deny(rust_2018_idioms)]
 
-extern crate toml;
-#[macro_use]
-extern crate serde_derive;
+use toml;
+use serde::Serialize;
 
 use std::collections::BTreeMap;
 use std::env;
-use std::fs::File;
+use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{PathBuf, Path};
 use std::process::{Command, Stdio};
 
-static HOSTS: &'static [&'static str] = &[
+static HOSTS: &[&str] = &[
     "aarch64-unknown-linux-gnu",
     "arm-unknown-linux-gnueabi",
     "arm-unknown-linux-gnueabihf",
@@ -32,6 +23,10 @@ static HOSTS: &'static [&'static str] = &[
     "mips64-unknown-linux-gnuabi64",
     "mips64el-unknown-linux-gnuabi64",
     "mipsel-unknown-linux-gnu",
+    "mipsisa32r6-unknown-linux-gnu",
+    "mipsisa32r6el-unknown-linux-gnu",
+    "mipsisa64r6-unknown-linux-gnuabi64",
+    "mipsisa64r6el-unknown-linux-gnuabi64",
     "powerpc-unknown-linux-gnu",
     "powerpc64-unknown-linux-gnu",
     "powerpc64le-unknown-linux-gnu",
@@ -41,10 +36,11 @@ static HOSTS: &'static [&'static str] = &[
     "x86_64-pc-windows-msvc",
     "x86_64-unknown-freebsd",
     "x86_64-unknown-linux-gnu",
+    "x86_64-unknown-linux-musl",
     "x86_64-unknown-netbsd",
 ];
 
-static TARGETS: &'static [&'static str] = &[
+static TARGETS: &[&str] = &[
     "aarch64-apple-ios",
     "aarch64-fuchsia",
     "aarch64-linux-android",
@@ -61,7 +57,9 @@ static TARGETS: &'static [&'static str] = &[
     "armv5te-unknown-linux-musleabi",
     "armv7-apple-ios",
     "armv7-linux-androideabi",
+    "thumbv7neon-linux-androideabi",
     "armv7-unknown-linux-gnueabihf",
+    "thumbv7neon-unknown-linux-gnueabihf",
     "armv7-unknown-linux-musleabihf",
     "armebv7r-none-eabi",
     "armebv7r-none-eabihf",
@@ -84,13 +82,20 @@ static TARGETS: &'static [&'static str] = &[
     "mips-unknown-linux-musl",
     "mips64-unknown-linux-gnuabi64",
     "mips64el-unknown-linux-gnuabi64",
+    "mipsisa32r6-unknown-linux-gnu",
+    "mipsisa32r6el-unknown-linux-gnu",
+    "mipsisa64r6-unknown-linux-gnuabi64",
+    "mipsisa64r6el-unknown-linux-gnuabi64",
     "mipsel-unknown-linux-gnu",
     "mipsel-unknown-linux-musl",
+    "nvptx64-nvidia-cuda",
     "powerpc-unknown-linux-gnu",
     "powerpc64-unknown-linux-gnu",
     "powerpc64le-unknown-linux-gnu",
     "riscv32imc-unknown-none-elf",
     "riscv32imac-unknown-none-elf",
+    "riscv64imac-unknown-none-elf",
+    "riscv64gc-unknown-none-elf",
     "s390x-unknown-linux-gnu",
     "sparc64-unknown-linux-gnu",
     "sparcv9-sun-solaris",
@@ -98,10 +103,15 @@ static TARGETS: &'static [&'static str] = &[
     "thumbv7em-none-eabi",
     "thumbv7em-none-eabihf",
     "thumbv7m-none-eabi",
+    "thumbv8m.base-none-eabi",
+    "thumbv8m.main-none-eabi",
+    "thumbv8m.main-none-eabihf",
     "wasm32-unknown-emscripten",
     "wasm32-unknown-unknown",
+    "wasm32-unknown-wasi",
     "x86_64-apple-darwin",
     "x86_64-apple-ios",
+    "x86_64-fortanix-unknown-sgx",
     "x86_64-fuchsia",
     "x86_64-linux-android",
     "x86_64-pc-windows-gnu",
@@ -117,7 +127,7 @@ static TARGETS: &'static [&'static str] = &[
     "x86_64-unknown-redox",
 ];
 
-static DOCS_TARGETS: &'static [&'static str] = &[
+static DOCS_TARGETS: &[&str] = &[
     "i686-apple-darwin",
     "i686-pc-windows-gnu",
     "i686-pc-windows-msvc",
@@ -128,7 +138,7 @@ static DOCS_TARGETS: &'static [&'static str] = &[
     "x86_64-unknown-linux-gnu",
 ];
 
-static MINGW: &'static [&'static str] = &[
+static MINGW: &[&str] = &[
     "i686-pc-windows-gnu",
     "x86_64-pc-windows-gnu",
 ];
@@ -139,7 +149,8 @@ struct Manifest {
     manifest_version: String,
     date: String,
     pkg: BTreeMap<String, Package>,
-    renames: BTreeMap<String, Rename>
+    renames: BTreeMap<String, Rename>,
+    profiles: BTreeMap<String, Vec<String>>,
 }
 
 #[derive(Serialize)]
@@ -154,7 +165,7 @@ struct Rename {
     to: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Default)]
 struct Target {
     available: bool,
     url: Option<String>,
@@ -166,23 +177,19 @@ struct Target {
 }
 
 impl Target {
-    fn unavailable() -> Target {
-        Target {
-            available: false,
-            url: None,
-            hash: None,
-            xz_url: None,
-            xz_hash: None,
-            components: None,
-            extensions: None,
-        }
-    }
+    fn unavailable() -> Self { Self::default() }
 }
 
 #[derive(Serialize)]
 struct Component {
     pkg: String,
     target: String,
+}
+
+impl Component {
+    fn from_str(pkg: &str, target: &str) -> Self {
+        Self { pkg: pkg.to_string(), target: target.to_string() }
+    }
 }
 
 macro_rules! t {
@@ -200,6 +207,7 @@ struct Builder {
     rustfmt_release: String,
     llvm_tools_release: String,
     lldb_release: String,
+    miri_release: String,
 
     input: PathBuf,
     output: PathBuf,
@@ -215,6 +223,7 @@ struct Builder {
     rustfmt_version: Option<String>,
     llvm_tools_version: Option<String>,
     lldb_version: Option<String>,
+    miri_version: Option<String>,
 
     rust_git_commit_hash: Option<String>,
     cargo_git_commit_hash: Option<String>,
@@ -223,6 +232,7 @@ struct Builder {
     rustfmt_git_commit_hash: Option<String>,
     llvm_tools_git_commit_hash: Option<String>,
     lldb_git_commit_hash: Option<String>,
+    miri_git_commit_hash: Option<String>,
 
     should_sign: bool,
 }
@@ -245,13 +255,14 @@ fn main() {
     let output = PathBuf::from(args.next().unwrap());
     let date = args.next().unwrap();
     let rust_release = args.next().unwrap();
+    let s3_address = args.next().unwrap();
     let cargo_release = args.next().unwrap();
     let rls_release = args.next().unwrap();
     let clippy_release = args.next().unwrap();
+    let miri_release = args.next().unwrap();
     let rustfmt_release = args.next().unwrap();
     let llvm_tools_release = args.next().unwrap();
     let lldb_release = args.next().unwrap();
-    let s3_address = args.next().unwrap();
 
     // Do not ask for a passphrase while manually testing
     let mut passphrase = String::new();
@@ -267,6 +278,7 @@ fn main() {
         rustfmt_release,
         llvm_tools_release,
         lldb_release,
+        miri_release,
 
         input,
         output,
@@ -282,6 +294,7 @@ fn main() {
         rustfmt_version: None,
         llvm_tools_version: None,
         lldb_version: None,
+        miri_version: None,
 
         rust_git_commit_hash: None,
         cargo_git_commit_hash: None,
@@ -290,9 +303,29 @@ fn main() {
         rustfmt_git_commit_hash: None,
         llvm_tools_git_commit_hash: None,
         lldb_git_commit_hash: None,
+        miri_git_commit_hash: None,
 
         should_sign,
     }.build();
+}
+
+enum PkgType { RustSrc, Cargo, Rls, Clippy, Rustfmt, LlvmTools, Lldb, Miri, Other }
+
+impl PkgType {
+    fn from_component(component: &str) -> Self {
+        use PkgType::*;
+        match component {
+            "rust-src" => RustSrc,
+            "cargo" => Cargo,
+            "rls" | "rls-preview" => Rls,
+            "clippy" | "clippy-preview" => Clippy,
+            "rustfmt" | "rustfmt-preview" => Rustfmt,
+            "llvm-tools" | "llvm-tools-preview" => LlvmTools,
+            "lldb" | "lldb-preview" => Lldb,
+            "miri" | "miri-preview" => Miri,
+            _ => Other,
+        }
+    }
 }
 
 impl Builder {
@@ -305,6 +338,7 @@ impl Builder {
         self.llvm_tools_version = self.version("llvm-tools", "x86_64-unknown-linux-gnu");
         // lldb is only built for macOS.
         self.lldb_version = self.version("lldb", "x86_64-apple-darwin");
+        self.miri_version = self.version("miri", "x86_64-unknown-linux-gnu");
 
         self.rust_git_commit_hash = self.git_commit_hash("rust", "x86_64-unknown-linux-gnu");
         self.cargo_git_commit_hash = self.git_commit_hash("cargo", "x86_64-unknown-linux-gnu");
@@ -314,6 +348,7 @@ impl Builder {
         self.llvm_tools_git_commit_hash = self.git_commit_hash("llvm-tools",
                                                                "x86_64-unknown-linux-gnu");
         self.lldb_git_commit_hash = self.git_commit_hash("lldb", "x86_64-unknown-linux-gnu");
+        self.miri_git_commit_hash = self.git_commit_hash("miri", "x86_64-unknown-linux-gnu");
 
         self.digest_and_sign();
         let manifest = self.build_manifest();
@@ -339,25 +374,59 @@ impl Builder {
             date: self.date.to_string(),
             pkg: BTreeMap::new(),
             renames: BTreeMap::new(),
+            profiles: BTreeMap::new(),
         };
+        self.add_packages_to(&mut manifest);
+        self.add_profiles_to(&mut manifest);
+        self.add_renames_to(&mut manifest);
+        manifest.pkg.insert("rust".to_string(), self.rust_package(&manifest));
+        manifest
+    }
 
-        self.package("rustc", &mut manifest.pkg, HOSTS);
-        self.package("cargo", &mut manifest.pkg, HOSTS);
-        self.package("rust-mingw", &mut manifest.pkg, MINGW);
-        self.package("rust-std", &mut manifest.pkg, TARGETS);
-        self.package("rust-docs", &mut manifest.pkg, DOCS_TARGETS);
-        self.package("rust-src", &mut manifest.pkg, &["*"]);
-        self.package("rls-preview", &mut manifest.pkg, HOSTS);
-        self.package("clippy-preview", &mut manifest.pkg, HOSTS);
-        self.package("rustfmt-preview", &mut manifest.pkg, HOSTS);
-        self.package("rust-analysis", &mut manifest.pkg, TARGETS);
-        self.package("llvm-tools-preview", &mut manifest.pkg, TARGETS);
-        self.package("lldb-preview", &mut manifest.pkg, TARGETS);
+    fn add_packages_to(&mut self, manifest: &mut Manifest) {
+        let mut package = |name, targets| self.package(name, &mut manifest.pkg, targets);
+        package("rustc", HOSTS);
+        package("cargo", HOSTS);
+        package("rust-mingw", MINGW);
+        package("rust-std", TARGETS);
+        package("rust-docs", DOCS_TARGETS);
+        package("rust-src", &["*"]);
+        package("rls-preview", HOSTS);
+        package("clippy-preview", HOSTS);
+        package("miri-preview", HOSTS);
+        package("rustfmt-preview", HOSTS);
+        package("rust-analysis", TARGETS);
+        package("llvm-tools-preview", TARGETS);
+        package("lldb-preview", TARGETS);
+    }
 
-        manifest.renames.insert("rls".to_owned(), Rename { to: "rls-preview".to_owned() });
-        manifest.renames.insert("rustfmt".to_owned(), Rename { to: "rustfmt-preview".to_owned() });
-        manifest.renames.insert("clippy".to_owned(), Rename { to: "clippy-preview".to_owned() });
+    fn add_profiles_to(&mut self, manifest: &mut Manifest) {
+        let mut profile = |name, pkgs| self.profile(name, &mut manifest.profiles, pkgs);
+        profile("minimal", &["rustc", "cargo", "rust-std", "rust-mingw"]);
+        profile("default", &[
+            "rustc", "cargo", "rust-std", "rust-mingw",
+            "rust-docs", "rustfmt-preview", "clippy-preview"
+        ]);
+        profile("complete", &[
+            "rustc", "cargo", "rust-std", "rust-mingw",
+            "rust-docs", "rustfmt-preview", "clippy-preview",
+            "rls-preview", "rust-src", "llvm-tools-preview",
+            "lldb-preview", "rust-analysis", "miri-preview"
+        ]);
+    }
 
+    fn add_renames_to(&self, manifest: &mut Manifest) {
+        let mut rename = |from: &str, to: &str| manifest.renames.insert(
+            from.to_owned(),
+            Rename { to: to.to_owned() }
+        );
+        rename("rls", "rls-preview");
+        rename("rustfmt", "rustfmt-preview");
+        rename("clippy", "clippy-preview");
+        rename("miri", "miri-preview");
+    }
+
+    fn rust_package(&mut self, manifest: &Manifest) -> Package {
         let mut pkg = Package {
             version: self.cached_version("rust")
                          .as_ref()
@@ -367,99 +436,106 @@ impl Builder {
             target: BTreeMap::new(),
         };
         for host in HOSTS {
-            let filename = self.filename("rust", host);
-            let digest = match self.digests.remove(&filename) {
-                Some(digest) => digest,
-                None => {
-                    pkg.target.insert(host.to_string(), Target::unavailable());
-                    continue
-                }
-            };
-            let xz_filename = filename.replace(".tar.gz", ".tar.xz");
-            let xz_digest = self.digests.remove(&xz_filename);
-            let mut components = Vec::new();
-            let mut extensions = Vec::new();
-
-            // rustc/rust-std/cargo/docs are all required, and so is rust-mingw
-            // if it's available for the target.
-            components.extend(vec![
-                Component { pkg: "rustc".to_string(), target: host.to_string() },
-                Component { pkg: "rust-std".to_string(), target: host.to_string() },
-                Component { pkg: "cargo".to_string(), target: host.to_string() },
-                Component { pkg: "rust-docs".to_string(), target: host.to_string() },
-            ]);
-            if host.contains("pc-windows-gnu") {
-                components.push(Component {
-                    pkg: "rust-mingw".to_string(),
-                    target: host.to_string(),
-                });
+            if let Some(target) = self.target_host_combination(host, &manifest) {
+                pkg.target.insert(host.to_string(), target);
+            } else {
+                pkg.target.insert(host.to_string(), Target::unavailable());
+                continue
             }
-
-            // Tools are always present in the manifest, but might be marked as unavailable if they
-            // weren't built
-            extensions.extend(vec![
-                Component { pkg: "clippy-preview".to_string(), target: host.to_string() },
-                Component { pkg: "rls-preview".to_string(), target: host.to_string() },
-                Component { pkg: "rustfmt-preview".to_string(), target: host.to_string() },
-                Component { pkg: "llvm-tools-preview".to_string(), target: host.to_string() },
-                Component { pkg: "lldb-preview".to_string(), target: host.to_string() },
-                Component { pkg: "rust-analysis".to_string(), target: host.to_string() },
-            ]);
-
-            for target in TARGETS {
-                if target != host {
-                    extensions.push(Component {
-                        pkg: "rust-std".to_string(),
-                        target: target.to_string(),
-                    });
-                }
-            }
-            extensions.push(Component {
-                pkg: "rust-src".to_string(),
-                target: "*".to_string(),
-            });
-
-            // If the components/extensions don't actually exist for this
-            // particular host/target combination then nix it entirely from our
-            // lists.
-            {
-                let has_component = |c: &Component| {
-                    if c.target == "*" {
-                        return true
-                    }
-                    let pkg = match manifest.pkg.get(&c.pkg) {
-                        Some(p) => p,
-                        None => return false,
-                    };
-                    pkg.target.get(&c.target).is_some()
-                };
-                extensions.retain(&has_component);
-                components.retain(&has_component);
-            }
-
-            pkg.target.insert(host.to_string(), Target {
-                available: true,
-                url: Some(self.url(&filename)),
-                hash: Some(digest),
-                xz_url: xz_digest.as_ref().map(|_| self.url(&xz_filename)),
-                xz_hash: xz_digest,
-                components: Some(components),
-                extensions: Some(extensions),
-            });
         }
-        manifest.pkg.insert("rust".to_string(), pkg);
+        pkg
+    }
 
-        return manifest;
+    fn target_host_combination(&mut self, host: &str, manifest: &Manifest) -> Option<Target> {
+        let filename = self.filename("rust", host);
+        let digest = self.digests.remove(&filename)?;
+        let xz_filename = filename.replace(".tar.gz", ".tar.xz");
+        let xz_digest = self.digests.remove(&xz_filename);
+        let mut components = Vec::new();
+        let mut extensions = Vec::new();
+
+        let host_component = |pkg| Component::from_str(pkg, host);
+
+        // rustc/rust-std/cargo/docs are all required,
+        // and so is rust-mingw if it's available for the target.
+        components.extend(vec![
+            host_component("rustc"),
+            host_component("rust-std"),
+            host_component("cargo"),
+            host_component("rust-docs"),
+        ]);
+        if host.contains("pc-windows-gnu") {
+            components.push(host_component("rust-mingw"));
+        }
+
+        // Tools are always present in the manifest,
+        // but might be marked as unavailable if they weren't built.
+        extensions.extend(vec![
+            host_component("clippy-preview"),
+            host_component("miri-preview"),
+            host_component("rls-preview"),
+            host_component("rustfmt-preview"),
+            host_component("llvm-tools-preview"),
+            host_component("lldb-preview"),
+            host_component("rust-analysis"),
+        ]);
+
+        extensions.extend(
+            TARGETS.iter()
+                .filter(|&&target| target != host)
+                .map(|target| Component::from_str("rust-std", target))
+        );
+        extensions.push(Component::from_str("rust-src", "*"));
+
+        // If the components/extensions don't actually exist for this
+        // particular host/target combination then nix it entirely from our
+        // lists.
+        let has_component = |c: &Component| {
+            if c.target == "*" {
+                return true
+            }
+            let pkg = match manifest.pkg.get(&c.pkg) {
+                Some(p) => p,
+                None => return false,
+            };
+            pkg.target.get(&c.target).is_some()
+        };
+        extensions.retain(&has_component);
+        components.retain(&has_component);
+
+        Some(Target {
+            available: true,
+            url: Some(self.url(&filename)),
+            hash: Some(digest),
+            xz_url: xz_digest.as_ref().map(|_| self.url(&xz_filename)),
+            xz_hash: xz_digest,
+            components: Some(components),
+            extensions: Some(extensions),
+        })
+    }
+
+    fn profile(&mut self,
+               profile_name: &str,
+               dst: &mut BTreeMap<String, Vec<String>>,
+               pkgs: &[&str]) {
+        dst.insert(profile_name.to_owned(), pkgs.iter().map(|s| (*s).to_owned()).collect());
     }
 
     fn package(&mut self,
                pkgname: &str,
                dst: &mut BTreeMap<String, Package>,
                targets: &[&str]) {
-        let (version, is_present) = match *self.cached_version(pkgname) {
-            Some(ref version) => (version.clone(), true),
-            None => (String::new(), false),
-        };
+        let (version, mut is_present) = self.cached_version(pkgname)
+            .as_ref()
+            .cloned()
+            .map(|version| (version, true))
+            .unwrap_or_default();
+
+        // miri needs to build std with xargo, which doesn't allow stable/beta:
+        // <https://github.com/japaric/xargo/pull/204#issuecomment-374888868>
+        if pkgname == "miri-preview" && self.rust_release != "nightly" {
+            is_present = false; // ignore it
+        }
 
         let targets = targets.iter().map(|name| {
             if is_present {
@@ -483,15 +559,7 @@ impl Builder {
             } else {
                 // If the component is not present for this build add it anyway but mark it as
                 // unavailable -- this way rustup won't allow upgrades without --force
-                (name.to_string(), Target {
-                    available: false,
-                    url: None,
-                    hash: None,
-                    xz_url: None,
-                    xz_hash: None,
-                    components: None,
-                    extensions: None,
-                })
+                (name.to_string(), Target::unavailable())
             }
         }).collect();
 
@@ -510,83 +578,65 @@ impl Builder {
     }
 
     fn filename(&self, component: &str, target: &str) -> String {
-        if component == "rust-src" {
-            format!("rust-src-{}.tar.gz", self.rust_release)
-        } else if component == "cargo" {
-            format!("cargo-{}-{}.tar.gz", self.cargo_release, target)
-        } else if component == "rls" || component == "rls-preview" {
-            format!("rls-{}-{}.tar.gz", self.rls_release, target)
-        } else if component == "clippy" || component == "clippy-preview" {
-            format!("clippy-{}-{}.tar.gz", self.clippy_release, target)
-        } else if component == "rustfmt" || component == "rustfmt-preview" {
-            format!("rustfmt-{}-{}.tar.gz", self.rustfmt_release, target)
-        } else if component == "llvm-tools" || component == "llvm-tools-preview" {
-            format!("llvm-tools-{}-{}.tar.gz", self.llvm_tools_release, target)
-        } else if component == "lldb" || component == "lldb-preview" {
-            format!("lldb-{}-{}.tar.gz", self.lldb_release, target)
-        } else {
-            format!("{}-{}-{}.tar.gz", component, self.rust_release, target)
+        use PkgType::*;
+        match PkgType::from_component(component) {
+            RustSrc => format!("rust-src-{}.tar.gz", self.rust_release),
+            Cargo => format!("cargo-{}-{}.tar.gz", self.cargo_release, target),
+            Rls => format!("rls-{}-{}.tar.gz", self.rls_release, target),
+            Clippy => format!("clippy-{}-{}.tar.gz", self.clippy_release, target),
+            Rustfmt => format!("rustfmt-{}-{}.tar.gz", self.rustfmt_release, target),
+            LlvmTools => format!("llvm-tools-{}-{}.tar.gz", self.llvm_tools_release, target),
+            Lldb => format!("lldb-{}-{}.tar.gz", self.lldb_release, target),
+            Miri => format!("miri-{}-{}.tar.gz", self.miri_release, target),
+            Other => format!("{}-{}-{}.tar.gz", component, self.rust_release, target),
         }
     }
 
     fn cached_version(&self, component: &str) -> &Option<String> {
-        if component == "cargo" {
-            &self.cargo_version
-        } else if component == "rls" || component == "rls-preview" {
-            &self.rls_version
-        } else if component == "clippy" || component == "clippy-preview" {
-            &self.clippy_version
-        } else if component == "rustfmt" || component == "rustfmt-preview" {
-            &self.rustfmt_version
-        } else if component == "llvm-tools" || component == "llvm-tools-preview" {
-            &self.llvm_tools_version
-        } else if component == "lldb" || component == "lldb-preview" {
-            &self.lldb_version
-        } else {
-            &self.rust_version
+        use PkgType::*;
+        match PkgType::from_component(component) {
+            Cargo => &self.cargo_version,
+            Rls => &self.rls_version,
+            Clippy => &self.clippy_version,
+            Rustfmt => &self.rustfmt_version,
+            LlvmTools => &self.llvm_tools_version,
+            Lldb => &self.lldb_version,
+            Miri => &self.miri_version,
+            _ => &self.rust_version,
         }
     }
 
     fn cached_git_commit_hash(&self, component: &str) -> &Option<String> {
-        if component == "cargo" {
-            &self.cargo_git_commit_hash
-        } else if component == "rls" || component == "rls-preview" {
-            &self.rls_git_commit_hash
-        } else if component == "clippy" || component == "clippy-preview" {
-            &self.clippy_git_commit_hash
-        } else if component == "rustfmt" || component == "rustfmt-preview" {
-            &self.rustfmt_git_commit_hash
-        } else if component == "llvm-tools" || component == "llvm-tools-preview" {
-            &self.llvm_tools_git_commit_hash
-        } else if component == "lldb" || component == "lldb-preview" {
-            &self.lldb_git_commit_hash
-        } else {
-            &self.rust_git_commit_hash
+        use PkgType::*;
+        match PkgType::from_component(component) {
+            Cargo => &self.cargo_git_commit_hash,
+            Rls => &self.rls_git_commit_hash,
+            Clippy => &self.clippy_git_commit_hash,
+            Rustfmt => &self.rustfmt_git_commit_hash,
+            LlvmTools => &self.llvm_tools_git_commit_hash,
+            Lldb => &self.lldb_git_commit_hash,
+            Miri => &self.miri_git_commit_hash,
+            _ => &self.rust_git_commit_hash,
         }
     }
 
     fn version(&self, component: &str, target: &str) -> Option<String> {
-        let mut cmd = Command::new("tar");
-        let filename = self.filename(component, target);
-        cmd.arg("xf")
-           .arg(self.input.join(&filename))
-           .arg(format!("{}/version", filename.replace(".tar.gz", "")))
-           .arg("-O");
-        let output = t!(cmd.output());
-        if output.status.success() {
-            Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
-        } else {
-            // Perhaps we didn't build this package.
-            None
-        }
+        self.untar(component, target, |filename| format!("{}/version", filename))
     }
 
     fn git_commit_hash(&self, component: &str, target: &str) -> Option<String> {
+        self.untar(component, target, |filename| format!("{}/git-commit-hash", filename))
+    }
+
+    fn untar<F>(&self, component: &str, target: &str, dir: F) -> Option<String>
+    where
+        F: FnOnce(String) -> String
+    {
         let mut cmd = Command::new("tar");
         let filename = self.filename(component, target);
         cmd.arg("xf")
            .arg(self.input.join(&filename))
-           .arg(format!("{}/git-commit-hash", filename.replace(".tar.gz", "")))
+           .arg(dir(filename.replace(".tar.gz", "")))
            .arg("-O");
         let output = t!(cmd.output());
         if output.status.success() {
@@ -621,8 +671,10 @@ impl Builder {
         let asc = self.output.join(format!("{}.asc", filename));
         println!("signing: {:?}", path);
         let mut cmd = Command::new("gpg");
-        cmd.arg("--no-tty")
+        cmd.arg("--pinentry-mode=loopback")
+            .arg("--no-tty")
             .arg("--yes")
+            .arg("--batch")
             .arg("--passphrase-fd").arg("0")
             .arg("--personal-digest-preferences").arg("SHA512")
             .arg("--armor")

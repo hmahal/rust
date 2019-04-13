@@ -1,13 +1,3 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 use std::borrow::Cow;
 use std::collections::CollectionAllocErr::*;
 use std::mem::size_of;
@@ -31,7 +21,7 @@ impl<'a> IntoCow<'a, str> for &'a str {
 
 #[test]
 fn test_from_str() {
-    let owned: Option<::std::string::String> = "string".parse().ok();
+    let owned: Option<std::string::String> = "string".parse().ok();
     assert_eq!(owned.as_ref().map(|s| &**s), Some("string"));
 }
 
@@ -132,7 +122,7 @@ fn test_from_utf16() {
         let s_as_utf16 = s.encode_utf16().collect::<Vec<u16>>();
         let u_as_string = String::from_utf16(&u).unwrap();
 
-        assert!(::core::char::decode_utf16(u.iter().cloned()).all(|r| r.is_ok()));
+        assert!(core::char::decode_utf16(u.iter().cloned()).all(|r| r.is_ok()));
         assert_eq!(s_as_utf16, u);
 
         assert_eq!(u_as_string, s);
@@ -533,6 +523,7 @@ fn test_reserve_exact() {
 }
 
 #[test]
+#[cfg(not(miri))] // Miri does not support signalling OOM
 fn test_try_reserve() {
 
     // These are the interesting cases:
@@ -610,6 +601,7 @@ fn test_try_reserve() {
 }
 
 #[test]
+#[cfg(not(miri))] // Miri does not support signalling OOM
 fn test_try_reserve_exact() {
 
     // This is exactly the same as test_try_reserve with the method changed.

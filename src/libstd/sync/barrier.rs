@@ -1,15 +1,5 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-use fmt;
-use sync::{Mutex, Condvar};
+use crate::fmt;
+use crate::sync::{Mutex, Condvar};
 
 /// A barrier enables multiple threads to synchronize the beginning
 /// of some computation.
@@ -69,7 +59,7 @@ pub struct BarrierWaitResult(bool);
 
 #[stable(feature = "std_debug", since = "1.16.0")]
 impl fmt::Debug for Barrier {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.pad("Barrier { .. }")
     }
 }
@@ -161,7 +151,7 @@ impl Barrier {
 
 #[stable(feature = "std_debug", since = "1.16.0")]
 impl fmt::Debug for BarrierWaitResult {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("BarrierWaitResult")
             .field("is_leader", &self.is_leader())
             .finish()
@@ -169,7 +159,7 @@ impl fmt::Debug for BarrierWaitResult {
 }
 
 impl BarrierWaitResult {
-    /// Returns whether this thread from [`wait`] is the "leader thread".
+    /// Returns `true` if this thread from [`wait`] is the "leader thread".
     ///
     /// Only one thread will have `true` returned from their result, all other
     /// threads will have `false` returned.
@@ -191,9 +181,9 @@ impl BarrierWaitResult {
 
 #[cfg(test)]
 mod tests {
-    use sync::{Arc, Barrier};
-    use sync::mpsc::{channel, TryRecvError};
-    use thread;
+    use crate::sync::{Arc, Barrier};
+    use crate::sync::mpsc::{channel, TryRecvError};
+    use crate::thread;
 
     #[test]
     #[cfg_attr(target_os = "emscripten", ignore)]

@@ -1,23 +1,13 @@
-// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 /// The underlying OsString/OsStr implementation on Windows is a
 /// wrapper around the "WTF-8" encoding; see the `wtf8` module for more.
 
-use borrow::Cow;
-use fmt;
-use sys_common::wtf8::{Wtf8, Wtf8Buf};
-use mem;
-use rc::Rc;
-use sync::Arc;
-use sys_common::{AsInner, IntoInner, FromInner};
+use crate::borrow::Cow;
+use crate::fmt;
+use crate::sys_common::wtf8::{Wtf8, Wtf8Buf};
+use crate::mem;
+use crate::rc::Rc;
+use crate::sync::Arc;
+use crate::sys_common::{AsInner, IntoInner, FromInner};
 
 #[derive(Clone, Hash)]
 pub struct Buf {
@@ -43,13 +33,13 @@ impl AsInner<Wtf8> for Buf {
 }
 
 impl fmt::Debug for Buf {
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(self.as_slice(), formatter)
     }
 }
 
 impl fmt::Display for Buf {
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(self.as_slice(), formatter)
     }
 }
@@ -59,13 +49,13 @@ pub struct Slice {
 }
 
 impl fmt::Debug for Slice {
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(&self.inner, formatter)
     }
 }
 
 impl fmt::Display for Slice {
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&self.inner, formatter)
     }
 }
@@ -149,7 +139,7 @@ impl Slice {
         self.inner.as_str()
     }
 
-    pub fn to_string_lossy(&self) -> Cow<str> {
+    pub fn to_string_lossy(&self) -> Cow<'_, str> {
         self.inner.to_string_lossy()
     }
 

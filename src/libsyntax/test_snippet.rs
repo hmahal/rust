@@ -1,16 +1,9 @@
-// Copyright 2016 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
+use crate::source_map::{SourceMap, FilePathMapping};
+use crate::with_globals;
 
-use source_map::{SourceMap, FilePathMapping};
 use errors::Handler;
 use errors::emitter::EmitterWriter;
+
 use std::io;
 use std::io::prelude::*;
 use rustc_data_structures::sync::Lrc;
@@ -18,7 +11,6 @@ use std::str;
 use std::sync::{Arc, Mutex};
 use std::path::Path;
 use syntax_pos::{BytePos, NO_EXPANSION, Span, MultiSpan};
-use with_globals;
 
 /// Identify a position in the text by the Nth occurrence of a string.
 struct Position {
@@ -66,7 +58,7 @@ fn test_harness(file_text: &str, span_labels: Vec<SpanLabel>, expected_output: &
                                         Some(source_map.clone()),
                                         false,
                                         false);
-        let handler = Handler::with_emitter(true, false, Box::new(emitter));
+        let handler = Handler::with_emitter(true, None, Box::new(emitter));
         handler.span_err(msp, "foo");
 
         assert!(expected_output.chars().next() == Some('\n'),
@@ -378,6 +370,66 @@ error: foo
   |  ||____|__|
   |   |____|  `Y` is a good letter too
   |        `X` is a good letter
+
+"#);
+}
+
+#[test]
+fn triple_exact_overlap() {
+    test_harness(r#"
+fn foo() {
+  X0 Y0 Z0
+  X1 Y1 Z1
+  X2 Y2 Z2
+}
+"#,
+    vec![
+        SpanLabel {
+            start: Position {
+                string: "X0",
+                count: 1,
+            },
+            end: Position {
+                string: "X2",
+                count: 1,
+            },
+            label: "`X` is a good letter",
+        },
+        SpanLabel {
+            start: Position {
+                string: "X0",
+                count: 1,
+            },
+            end: Position {
+                string: "X2",
+                count: 1,
+            },
+            label: "`Y` is a good letter too",
+        },
+        SpanLabel {
+            start: Position {
+                string: "X0",
+                count: 1,
+            },
+            end: Position {
+                string: "X2",
+                count: 1,
+            },
+            label: "`Z` label",
+        },
+    ],
+    r#"
+error: foo
+ --> test.rs:3:3
+  |
+3 | /   X0 Y0 Z0
+4 | |   X1 Y1 Z1
+5 | |   X2 Y2 Z2
+  | |    ^
+  | |    |
+  | |    `X` is a good letter
+  | |____`Y` is a good letter too
+  |      `Z` label
 
 "#);
 }

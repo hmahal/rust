@@ -1,7 +1,7 @@
 error[E0405]: cannot find trait `Add` in this scope
-  --> $DIR/no-implicit-prelude-nested.rs:21:14
+  --> $DIR/no-implicit-prelude-nested.rs:11:14
    |
-LL |         impl Add for Test {} //~ ERROR cannot find trait `Add` in this scope
+LL |         impl Add for Test {}
    |              ^^^ not found in this scope
 help: possible candidate is found in another module, you can import it into scope
    |
@@ -9,9 +9,9 @@ LL |         use std::ops::Add;
    |
 
 error[E0405]: cannot find trait `Clone` in this scope
-  --> $DIR/no-implicit-prelude-nested.rs:22:14
+  --> $DIR/no-implicit-prelude-nested.rs:12:14
    |
-LL |         impl Clone for Test {} //~ ERROR cannot find trait `Clone` in this scope
+LL |         impl Clone for Test {}
    |              ^^^^^ not found in this scope
 help: possible candidates are found in other modules, you can import them into scope
    |
@@ -21,9 +21,9 @@ LL |         use std::prelude::v1::Clone;
    |
 
 error[E0405]: cannot find trait `Iterator` in this scope
-  --> $DIR/no-implicit-prelude-nested.rs:23:14
+  --> $DIR/no-implicit-prelude-nested.rs:13:14
    |
-LL |         impl Iterator for Test {} //~ ERROR cannot find trait `Iterator` in this scope
+LL |         impl Iterator for Test {}
    |              ^^^^^^^^ not found in this scope
 help: possible candidates are found in other modules, you can import them into scope
    |
@@ -33,9 +33,9 @@ LL |         use std::prelude::v1::Iterator;
    |
 
 error[E0405]: cannot find trait `ToString` in this scope
-  --> $DIR/no-implicit-prelude-nested.rs:24:14
+  --> $DIR/no-implicit-prelude-nested.rs:14:14
    |
-LL |         impl ToString for Test {} //~ ERROR cannot find trait `ToString` in this scope
+LL |         impl ToString for Test {}
    |              ^^^^^^^^ not found in this scope
 help: possible candidates are found in other modules, you can import them into scope
    |
@@ -45,15 +45,15 @@ LL |         use std::string::ToString;
    |
 
 error[E0405]: cannot find trait `Writer` in this scope
-  --> $DIR/no-implicit-prelude-nested.rs:25:14
+  --> $DIR/no-implicit-prelude-nested.rs:15:14
    |
-LL |         impl Writer for Test {} //~ ERROR cannot find trait `Writer` in this scope
+LL |         impl Writer for Test {}
    |              ^^^^^^ not found in this scope
 
 error[E0425]: cannot find function `drop` in this scope
-  --> $DIR/no-implicit-prelude-nested.rs:28:13
+  --> $DIR/no-implicit-prelude-nested.rs:18:13
    |
-LL |             drop(2) //~ ERROR cannot find function `drop` in this scope
+LL |             drop(2)
    |             ^^^^ not found in this scope
 help: possible candidates are found in other modules, you can import them into scope
    |
@@ -63,9 +63,9 @@ LL |         use std::prelude::v1::drop;
    |
 
 error[E0405]: cannot find trait `Add` in this scope
-  --> $DIR/no-implicit-prelude-nested.rs:33:10
+  --> $DIR/no-implicit-prelude-nested.rs:23:10
    |
-LL |     impl Add for Test {} //~ ERROR cannot find trait `Add` in this scope
+LL |     impl Add for Test {}
    |          ^^^ not found in this scope
 help: possible candidate is found in another module, you can import it into scope
    |
@@ -73,9 +73,9 @@ LL |     use std::ops::Add;
    |
 
 error[E0405]: cannot find trait `Clone` in this scope
-  --> $DIR/no-implicit-prelude-nested.rs:34:10
+  --> $DIR/no-implicit-prelude-nested.rs:24:10
    |
-LL |     impl Clone for Test {} //~ ERROR cannot find trait `Clone` in this scope
+LL |     impl Clone for Test {}
    |          ^^^^^ not found in this scope
 help: possible candidates are found in other modules, you can import them into scope
    |
@@ -85,9 +85,9 @@ LL |     use std::prelude::v1::Clone;
    |
 
 error[E0405]: cannot find trait `Iterator` in this scope
-  --> $DIR/no-implicit-prelude-nested.rs:35:10
+  --> $DIR/no-implicit-prelude-nested.rs:25:10
    |
-LL |     impl Iterator for Test {} //~ ERROR cannot find trait `Iterator` in this scope
+LL |     impl Iterator for Test {}
    |          ^^^^^^^^ not found in this scope
 help: possible candidates are found in other modules, you can import them into scope
    |
@@ -97,9 +97,9 @@ LL |     use std::prelude::v1::Iterator;
    |
 
 error[E0405]: cannot find trait `ToString` in this scope
-  --> $DIR/no-implicit-prelude-nested.rs:36:10
+  --> $DIR/no-implicit-prelude-nested.rs:26:10
    |
-LL |     impl ToString for Test {} //~ ERROR cannot find trait `ToString` in this scope
+LL |     impl ToString for Test {}
    |          ^^^^^^^^ not found in this scope
 help: possible candidates are found in other modules, you can import them into scope
    |
@@ -109,15 +109,15 @@ LL |     use std::string::ToString;
    |
 
 error[E0405]: cannot find trait `Writer` in this scope
-  --> $DIR/no-implicit-prelude-nested.rs:37:10
+  --> $DIR/no-implicit-prelude-nested.rs:27:10
    |
-LL |     impl Writer for Test {} //~ ERROR cannot find trait `Writer` in this scope
+LL |     impl Writer for Test {}
    |          ^^^^^^ not found in this scope
 
 error[E0425]: cannot find function `drop` in this scope
-  --> $DIR/no-implicit-prelude-nested.rs:40:9
+  --> $DIR/no-implicit-prelude-nested.rs:30:9
    |
-LL |         drop(2) //~ ERROR cannot find function `drop` in this scope
+LL |         drop(2)
    |         ^^^^ not found in this scope
 help: possible candidates are found in other modules, you can import them into scope
    |
@@ -127,9 +127,9 @@ LL |     use std::prelude::v1::drop;
    |
 
 error[E0405]: cannot find trait `Add` in this scope
-  --> $DIR/no-implicit-prelude-nested.rs:48:14
+  --> $DIR/no-implicit-prelude-nested.rs:38:14
    |
-LL |         impl Add for Test {} //~ ERROR cannot find trait `Add` in this scope
+LL |         impl Add for Test {}
    |              ^^^ not found in this scope
 help: possible candidate is found in another module, you can import it into scope
    |
@@ -137,9 +137,9 @@ LL |         use std::ops::Add;
    |
 
 error[E0405]: cannot find trait `Clone` in this scope
-  --> $DIR/no-implicit-prelude-nested.rs:49:14
+  --> $DIR/no-implicit-prelude-nested.rs:39:14
    |
-LL |         impl Clone for Test {} //~ ERROR cannot find trait `Clone` in this scope
+LL |         impl Clone for Test {}
    |              ^^^^^ not found in this scope
 help: possible candidates are found in other modules, you can import them into scope
    |
@@ -149,9 +149,9 @@ LL |         use std::prelude::v1::Clone;
    |
 
 error[E0405]: cannot find trait `Iterator` in this scope
-  --> $DIR/no-implicit-prelude-nested.rs:50:14
+  --> $DIR/no-implicit-prelude-nested.rs:40:14
    |
-LL |         impl Iterator for Test {} //~ ERROR cannot find trait `Iterator` in this scope
+LL |         impl Iterator for Test {}
    |              ^^^^^^^^ not found in this scope
 help: possible candidates are found in other modules, you can import them into scope
    |
@@ -161,9 +161,9 @@ LL |         use std::prelude::v1::Iterator;
    |
 
 error[E0405]: cannot find trait `ToString` in this scope
-  --> $DIR/no-implicit-prelude-nested.rs:51:14
+  --> $DIR/no-implicit-prelude-nested.rs:41:14
    |
-LL |         impl ToString for Test {} //~ ERROR cannot find trait `ToString` in this scope
+LL |         impl ToString for Test {}
    |              ^^^^^^^^ not found in this scope
 help: possible candidates are found in other modules, you can import them into scope
    |
@@ -173,15 +173,15 @@ LL |         use std::string::ToString;
    |
 
 error[E0405]: cannot find trait `Writer` in this scope
-  --> $DIR/no-implicit-prelude-nested.rs:52:14
+  --> $DIR/no-implicit-prelude-nested.rs:42:14
    |
-LL |         impl Writer for Test {} //~ ERROR cannot find trait `Writer` in this scope
+LL |         impl Writer for Test {}
    |              ^^^^^^ not found in this scope
 
 error[E0425]: cannot find function `drop` in this scope
-  --> $DIR/no-implicit-prelude-nested.rs:55:13
+  --> $DIR/no-implicit-prelude-nested.rs:45:13
    |
-LL |             drop(2) //~ ERROR cannot find function `drop` in this scope
+LL |             drop(2)
    |             ^^^^ not found in this scope
 help: possible candidates are found in other modules, you can import them into scope
    |

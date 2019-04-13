@@ -1,13 +1,3 @@
-// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Memory allocation APIs
 
 #![stable(feature = "alloc_module", since = "1.28.0")]
@@ -430,12 +420,12 @@ impl fmt::Display for CannotReallocInPlace {
 /// }
 /// ```
 ///
-/// # Unsafety
+/// # Safety
 ///
 /// The `GlobalAlloc` trait is an `unsafe` trait for a number of reasons, and
 /// implementors must ensure that they adhere to these contracts:
 ///
-/// * It's undefined behavior if global allocators unwind.  This restriction may
+/// * It's undefined behavior if global allocators unwind. This restriction may
 ///   be lifted in the future, but currently a panic from any of these
 ///   functions may lead to memory unsafety.
 ///
@@ -653,7 +643,7 @@ pub unsafe trait GlobalAlloc {
 ///    currently allocated via an allocator `a`, then it is legal to
 ///    use that layout to deallocate it, i.e., `a.dealloc(ptr, k);`.
 ///
-/// # Unsafety
+/// # Safety
 ///
 /// The `Alloc` trait is an `unsafe` trait for a number of reasons, and
 /// implementors must ensure that they adhere to these contracts:

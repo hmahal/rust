@@ -1,20 +1,10 @@
-// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 use rustc::mir;
 
-use traits::BuilderMethods;
+use crate::traits::BuilderMethods;
 use super::FunctionCx;
 use super::LocalRef;
 use super::OperandValue;
-use traits::*;
+use crate::traits::*;
 
 impl<'a, 'tcx: 'a, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
     pub fn codegen_statement(
@@ -27,7 +17,7 @@ impl<'a, 'tcx: 'a, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
         self.set_debug_loc(&mut bx, statement.source_info);
         match statement.kind {
             mir::StatementKind::Assign(ref place, ref rvalue) => {
-                if let mir::Place::Local(index) = *place {
+                if let mir::Place::Base(mir::PlaceBase::Local(index)) = *place {
                     match self.locals[index] {
                         LocalRef::Place(cg_dest) => {
                             self.codegen_rvalue(bx, cg_dest, rvalue)
@@ -78,13 +68,13 @@ impl<'a, 'tcx: 'a, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
                 }
                 bx
             }
-            mir::StatementKind::InlineAsm { ref asm, ref outputs, ref inputs } => {
-                let outputs = outputs.iter().map(|output| {
+            mir::StatementKind::InlineAsm(ref asm) => {
+                let outputs = asm.outputs.iter().map(|output| {
                     self.codegen_place(&mut bx, output)
                 }).collect();
 
-                let input_vals = inputs.iter()
-                    .fold(Vec::with_capacity(inputs.len()), |mut acc, (span, input)| {
+                let input_vals = asm.inputs.iter()
+                    .fold(Vec::with_capacity(asm.inputs.len()), |mut acc, (span, input)| {
                         let op = self.codegen_operand(&mut bx, input);
                         if let OperandValue::Immediate(_) = op.val {
                             acc.push(op.immediate());
@@ -95,8 +85,8 @@ impl<'a, 'tcx: 'a, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
                         acc
                 });
 
-                if input_vals.len() == inputs.len() {
-                    let res = bx.codegen_inline_asm(asm, outputs, input_vals);
+                if input_vals.len() == asm.inputs.len() {
+                    let res = bx.codegen_inline_asm(&asm.asm, outputs, input_vals);
                     if !res {
                         span_err!(bx.sess(), statement.source_info.span, E0668,
                                   "malformed inline assembly");
@@ -106,7 +96,6 @@ impl<'a, 'tcx: 'a, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
             }
             mir::StatementKind::FakeRead(..) |
             mir::StatementKind::Retag { .. } |
-            mir::StatementKind::EscapeToRaw { .. } |
             mir::StatementKind::AscribeUserType(..) |
             mir::StatementKind::Nop => bx,
         }

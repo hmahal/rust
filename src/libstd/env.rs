@@ -1,13 +1,3 @@
-// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Inspection and manipulation of the process's environment.
 //!
 //! This module contains functions to inspect various aspects such as
@@ -23,13 +13,13 @@
 
 #![stable(feature = "env", since = "1.0.0")]
 
-use error::Error;
-use ffi::{OsStr, OsString};
-use fmt;
-use io;
-use path::{Path, PathBuf};
-use sys;
-use sys::os as os_imp;
+use crate::error::Error;
+use crate::ffi::{OsStr, OsString};
+use crate::fmt;
+use crate::io;
+use crate::path::{Path, PathBuf};
+use crate::sys;
+use crate::sys::os as os_imp;
 
 /// Returns the current working directory as a [`PathBuf`].
 ///
@@ -166,7 +156,7 @@ impl Iterator for Vars {
 
 #[stable(feature = "std_debug", since = "1.16.0")]
 impl fmt::Debug for Vars {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.pad("Vars { .. }")
     }
 }
@@ -180,7 +170,7 @@ impl Iterator for VarsOs {
 
 #[stable(feature = "std_debug", since = "1.16.0")]
 impl fmt::Debug for VarsOs {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.pad("VarsOs { .. }")
     }
 }
@@ -263,7 +253,7 @@ pub enum VarError {
 
 #[stable(feature = "env", since = "1.0.0")]
 impl fmt::Display for VarError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             VarError::NotPresent => write!(f, "environment variable not found"),
             VarError::NotUnicode(ref s) => {
@@ -397,7 +387,7 @@ pub struct SplitPaths<'a> { inner: os_imp::SplitPaths<'a> }
 /// }
 /// ```
 #[stable(feature = "env", since = "1.0.0")]
-pub fn split_paths<T: AsRef<OsStr> + ?Sized>(unparsed: &T) -> SplitPaths {
+pub fn split_paths<T: AsRef<OsStr> + ?Sized>(unparsed: &T) -> SplitPaths<'_> {
     SplitPaths { inner: os_imp::split_paths(unparsed.as_ref()) }
 }
 
@@ -409,8 +399,8 @@ impl<'a> Iterator for SplitPaths<'a> {
 }
 
 #[stable(feature = "std_debug", since = "1.16.0")]
-impl<'a> fmt::Debug for SplitPaths<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl fmt::Debug for SplitPaths<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.pad("SplitPaths { .. }")
     }
 }
@@ -498,7 +488,7 @@ pub fn join_paths<I, T>(paths: I) -> Result<OsString, JoinPathsError>
 
 #[stable(feature = "env", since = "1.0.0")]
 impl fmt::Display for JoinPathsError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.inner.fmt(f)
     }
 }
@@ -767,7 +757,7 @@ impl DoubleEndedIterator for Args {
 
 #[stable(feature = "std_debug", since = "1.16.0")]
 impl fmt::Debug for Args {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Args")
             .field("inner", &self.inner.inner.inner_debug())
             .finish()
@@ -800,7 +790,7 @@ impl DoubleEndedIterator for ArgsOs {
 
 #[stable(feature = "std_debug", since = "1.16.0")]
 impl fmt::Debug for ArgsOs {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ArgsOs")
             .field("inner", &self.inner.inner_debug())
             .finish()
@@ -810,7 +800,7 @@ impl fmt::Debug for ArgsOs {
 /// Constants associated with the current target
 #[stable(feature = "env", since = "1.0.0")]
 pub mod consts {
-    use sys::env::os;
+    use crate::sys::env::os;
 
     /// A string describing the architecture of the CPU that is currently
     /// in use.
@@ -982,10 +972,10 @@ mod arch {
 mod tests {
     use super::*;
 
-    use path::Path;
+    use crate::path::Path;
 
     #[test]
-    #[cfg_attr(target_os = "emscripten", ignore)]
+    #[cfg_attr(any(target_os = "emscripten", target_env = "sgx"), ignore)]
     fn test_self_exe_path() {
         let path = current_exe();
         assert!(path.is_ok());
@@ -999,13 +989,14 @@ mod tests {
     fn test() {
         assert!((!Path::new("test-path").is_absolute()));
 
+        #[cfg(not(target_env = "sgx"))]
         current_dir().unwrap();
     }
 
     #[test]
     #[cfg(windows)]
     fn split_paths_windows() {
-        use path::PathBuf;
+        use crate::path::PathBuf;
 
         fn check_parse(unparsed: &str, parsed: &[&str]) -> bool {
             split_paths(unparsed).collect::<Vec<_>>() ==
@@ -1027,7 +1018,7 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn split_paths_unix() {
-        use path::PathBuf;
+        use crate::path::PathBuf;
 
         fn check_parse(unparsed: &str, parsed: &[&str]) -> bool {
             split_paths(unparsed).collect::<Vec<_>>() ==
@@ -1044,7 +1035,7 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn join_paths_unix() {
-        use ffi::OsStr;
+        use crate::ffi::OsStr;
 
         fn test_eq(input: &[&str], output: &str) -> bool {
             &*join_paths(input.iter().cloned()).unwrap() ==
@@ -1062,7 +1053,7 @@ mod tests {
     #[test]
     #[cfg(windows)]
     fn join_paths_windows() {
-        use ffi::OsStr;
+        use crate::ffi::OsStr;
 
         fn test_eq(input: &[&str], output: &str) -> bool {
             &*join_paths(input.iter().cloned()).unwrap() ==

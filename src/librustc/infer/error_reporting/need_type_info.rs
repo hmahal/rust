@@ -1,18 +1,10 @@
-// Copyright 2017 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-use hir::{self, Local, Pat, Body, HirId};
-use hir::intravisit::{self, Visitor, NestedVisitorMap};
-use infer::InferCtxt;
-use infer::type_variable::TypeVariableOrigin;
-use ty::{self, Ty, Infer, TyVar};
+use crate::hir::def::Namespace;
+use crate::hir::{self, Local, Pat, Body, HirId};
+use crate::hir::intravisit::{self, Visitor, NestedVisitorMap};
+use crate::infer::InferCtxt;
+use crate::infer::type_variable::TypeVariableOrigin;
+use crate::ty::{self, Ty, Infer, TyVar};
+use crate::ty::print::Print;
 use syntax::source_map::CompilerDesugaringKind;
 use syntax_pos::Span;
 use errors::DiagnosticBuilder;
@@ -26,9 +18,9 @@ struct FindLocalByTypeVisitor<'a, 'gcx: 'a + 'tcx, 'tcx: 'a> {
 }
 
 impl<'a, 'gcx, 'tcx> FindLocalByTypeVisitor<'a, 'gcx, 'tcx> {
-    fn node_matches_type(&mut self, node_id: HirId) -> bool {
+    fn node_matches_type(&mut self, hir_id: HirId) -> bool {
         let ty_opt = self.infcx.in_progress_tables.and_then(|tables| {
-            tables.borrow().node_id_to_type_opt(node_id)
+            tables.borrow().node_type_opt(hir_id)
         });
         match ty_opt {
             Some(ty) => {
@@ -74,18 +66,26 @@ impl<'a, 'gcx, 'tcx> Visitor<'gcx> for FindLocalByTypeVisitor<'a, 'gcx, 'tcx> {
 
 
 impl<'a, 'gcx, 'tcx> InferCtxt<'a, 'gcx, 'tcx> {
-    pub fn extract_type_name(&self, ty: &'a Ty<'tcx>) -> String {
+    pub fn extract_type_name(
+        &self,
+        ty: &'a Ty<'tcx>,
+        highlight: Option<ty::print::RegionHighlightMode>,
+    ) -> String {
         if let ty::Infer(ty::TyVar(ty_vid)) = (*ty).sty {
             let ty_vars = self.type_variables.borrow();
             if let TypeVariableOrigin::TypeParameterDefinition(_, name) =
                 *ty_vars.var_origin(ty_vid) {
-                name.to_string()
-            } else {
-                ty.to_string()
+                return name.to_string();
             }
-        } else {
-            ty.to_string()
         }
+
+        let mut s = String::new();
+        let mut printer = ty::print::FmtPrinter::new(self.tcx, &mut s, Namespace::TypeNS);
+        if let Some(highlight) = highlight {
+            printer.region_highlight_mode = highlight;
+        }
+        let _ = ty.print(printer);
+        s
     }
 
     pub fn need_type_info_err(&self,
@@ -94,7 +94,7 @@ impl<'a, 'gcx, 'tcx> InferCtxt<'a, 'gcx, 'tcx> {
                             ty: Ty<'tcx>)
                             -> DiagnosticBuilder<'gcx> {
         let ty = self.resolve_type_vars_if_possible(&ty);
-        let name = self.extract_type_name(&ty);
+        let name = self.extract_type_name(&ty, None);
 
         let mut err_span = span;
         let mut labels = vec![(
@@ -115,7 +115,7 @@ impl<'a, 'gcx, 'tcx> InferCtxt<'a, 'gcx, 'tcx> {
         };
 
         if let Some(body_id) = body_id {
-            let expr = self.tcx.hir().expect_expr(body_id.node_id);
+            let expr = self.tcx.hir().expect_expr_by_hir_id(body_id.hir_id);
             local_visitor.visit_expr(expr);
         }
 

@@ -1,13 +1,3 @@
-// Copyright 2016 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! A pass that promotes borrows of constant rvalues.
 //!
 //! The rvalues considered constant are trees of temps,
@@ -140,7 +130,8 @@ impl<'tcx> Visitor<'tcx> for TempCollector<'tcx> {
     }
 }
 
-pub fn collect_temps(mir: &Mir, rpo: &mut ReversePostorder) -> IndexVec<Local, TempState> {
+pub fn collect_temps(mir: &Mir<'_>,
+                     rpo: &mut ReversePostorder<'_, '_>) -> IndexVec<Local, TempState> {
     let mut collector = TempCollector {
         temps: IndexVec::from_elem(TempState::Undefined, &mir.local_decls),
         span: mir.span,
@@ -187,11 +178,11 @@ impl<'a, 'tcx> Promoter<'a, 'tcx> {
                 span,
                 scope: OUTERMOST_SOURCE_SCOPE
             },
-            kind: StatementKind::Assign(Place::Local(dest), box rvalue)
+            kind: StatementKind::Assign(Place::Base(PlaceBase::Local(dest)), box rvalue)
         });
     }
 
-    /// Copy the initialization of this temp to the
+    /// Copies the initialization of this temp to the
     /// promoted MIR, recursing through temps.
     fn promote_temp(&mut self, temp: Local) -> Local {
         let old_keep_original = self.keep_original;
@@ -277,7 +268,9 @@ impl<'a, 'tcx> Promoter<'a, 'tcx> {
                             func,
                             args,
                             cleanup: None,
-                            destination: Some((Place::Local(new_temp), new_target)),
+                            destination: Some(
+                                (Place::Base(PlaceBase::Local(new_temp)), new_target)
+                            ),
                             from_hir_call,
                         },
                         ..terminator
@@ -299,9 +292,10 @@ impl<'a, 'tcx> Promoter<'a, 'tcx> {
             let promoted_id = Promoted::new(self.source.promoted.len());
             let mut promoted_place = |ty, span| {
                 promoted.span = span;
-                promoted.local_decls[RETURN_PLACE] =
-                    LocalDecl::new_return_place(ty, span);
-                Place::Promoted(box (promoted_id, ty))
+                promoted.local_decls[RETURN_PLACE] = LocalDecl::new_return_place(ty, span);
+                Place::Base(
+                    PlaceBase::Static(box Static{ kind: StaticKind::Promoted(promoted_id), ty })
+                )
             };
             let (blocks, local_decls) = self.source.basic_blocks_and_local_decls_mut();
             match candidate {
@@ -316,7 +310,7 @@ impl<'a, 'tcx> Promoter<'a, 'tcx> {
                                 place = &mut proj.base;
                             };
 
-                            let ty = place.ty(local_decls, self.tcx).to_ty(self.tcx);
+                            let ty = place.ty(local_decls, self.tcx).ty;
                             let span = statement.source_info.span;
 
                             Operand::Move(mem::replace(place, promoted_place(ty, span)))
@@ -382,7 +376,7 @@ pub fn promote_candidates<'a, 'tcx>(mir: &mut Mir<'tcx>,
         match candidate {
             Candidate::Ref(Location { block, statement_index }) => {
                 match mir[block].statements[statement_index].kind {
-                    StatementKind::Assign(Place::Local(local), _) => {
+                    StatementKind::Assign(Place::Base(PlaceBase::Local(local)), _) => {
                         if temps[local] == TempState::PromotedOut {
                             // Already promoted.
                             continue;
@@ -410,9 +404,11 @@ pub fn promote_candidates<'a, 'tcx>(mir: &mut Mir<'tcx>,
                 IndexVec::new(),
                 None,
                 initial_locals,
+                IndexVec::new(),
                 0,
                 vec![],
-                mir.span
+                mir.span,
+                vec![],
             ),
             tcx,
             source: mir,
@@ -427,7 +423,7 @@ pub fn promote_candidates<'a, 'tcx>(mir: &mut Mir<'tcx>,
     for block in mir.basic_blocks_mut() {
         block.statements.retain(|statement| {
             match statement.kind {
-                StatementKind::Assign(Place::Local(index), _) |
+                StatementKind::Assign(Place::Base(PlaceBase::Local(index)), _) |
                 StatementKind::StorageLive(index) |
                 StatementKind::StorageDead(index) => {
                     !promoted(index)
@@ -437,7 +433,7 @@ pub fn promote_candidates<'a, 'tcx>(mir: &mut Mir<'tcx>,
         });
         let terminator = block.terminator_mut();
         match terminator.kind {
-            TerminatorKind::Drop { location: Place::Local(index), target, .. } => {
+            TerminatorKind::Drop { location: Place::Base(PlaceBase::Local(index)), target, .. } => {
                 if promoted(index) {
                     terminator.kind = TerminatorKind::Goto {
                         target,

@@ -1,12 +1,4 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
+#![cfg(not(miri))]
 
 use std::borrow::Cow;
 use std::mem::size_of;
@@ -18,7 +10,7 @@ struct DropCounter<'a> {
     count: &'a mut u32,
 }
 
-impl<'a> Drop for DropCounter<'a> {
+impl Drop for DropCounter<'_> {
     fn drop(&mut self) {
         *self.count += 1;
     }
@@ -77,6 +69,11 @@ fn test_reserve() {
 
     v.reserve(16);
     assert!(v.capacity() >= 33)
+}
+
+#[test]
+fn test_zst_capacity() {
+    assert_eq!(Vec::<()>::new().capacity(), usize::max_value());
 }
 
 #[test]
@@ -643,7 +640,7 @@ fn test_splice_unbounded() {
 fn test_splice_forget() {
     let mut v = vec![1, 2, 3, 4, 5];
     let a = [10, 11, 12];
-    ::std::mem::forget(v.splice(2..4, a.iter().cloned()));
+    std::mem::forget(v.splice(2..4, a.iter().cloned()));
     assert_eq!(v, &[1, 2]);
 }
 

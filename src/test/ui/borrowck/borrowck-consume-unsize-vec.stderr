@@ -1,9 +1,9 @@
 error[E0382]: use of moved value: `b`
-  --> $DIR/borrowck-consume-unsize-vec.rs:18:13
+  --> $DIR/borrowck-consume-unsize-vec.rs:8:13
    |
 LL |     consume(b);
    |             - value moved here
-LL |     consume(b); //~ ERROR use of moved value
+LL |     consume(b);
    |             ^ value used here after move
    |
    = note: move occurs because `b` has type `std::boxed::Box<[i32; 5]>`, which does not implement the `Copy` trait

@@ -1,14 +1,4 @@
-// Copyright 2012-2016 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-use index;
+use crate::index;
 
 use rustc::hir;
 use rustc::hir::def::{self, CtorKind};
@@ -197,6 +187,7 @@ pub struct CrateRoot {
     pub has_default_lib_allocator: bool,
     pub plugin_registrar_fn: Option<DefIndex>,
     pub proc_macro_decls_static: Option<DefIndex>,
+    pub proc_macro_stability: Option<attr::Stability>,
 
     pub crate_deps: LazySeq<CrateDep>,
     pub dylib_dependency_formats: LazySeq<Option<LinkagePreference>>,
@@ -308,6 +299,8 @@ pub enum EntryKind<'tcx> {
     ForeignType,
     GlobalAsm,
     Type,
+    TypeParam,
+    ConstParam,
     Existential,
     Enum(ReprOptions),
     Field,
@@ -326,6 +319,7 @@ pub enum EntryKind<'tcx> {
     AssociatedType(AssociatedContainer),
     AssociatedExistential(AssociatedContainer),
     AssociatedConst(AssociatedContainer, ConstQualif, Lazy<RenderedConst>),
+    TraitAlias(Lazy<TraitAliasData<'tcx>>),
 }
 
 impl<'a, 'gcx> HashStable<StableHashingContext<'a>> for EntryKind<'gcx> {
@@ -343,7 +337,9 @@ impl<'a, 'gcx> HashStable<StableHashingContext<'a>> for EntryKind<'gcx> {
             EntryKind::ForeignType      |
             EntryKind::Field |
             EntryKind::Existential |
-            EntryKind::Type => {
+            EntryKind::Type |
+            EntryKind::TypeParam |
+            EntryKind::ConstParam => {
                 // Nothing else to hash here.
             }
             EntryKind::Const(qualif, ref const_data) => {
@@ -379,6 +375,9 @@ impl<'a, 'gcx> HashStable<StableHashingContext<'a>> for EntryKind<'gcx> {
             }
             EntryKind::Trait(ref trait_data) => {
                 trait_data.hash_stable(hcx, hasher);
+            }
+            EntryKind::TraitAlias(ref trait_alias_data) => {
+                trait_alias_data.hash_stable(hcx, hasher);
             }
             EntryKind::Impl(ref impl_data) => {
                 impl_data.hash_stable(hcx, hasher);
@@ -450,11 +449,8 @@ impl_stable_hash_for!(struct FnData<'tcx> { constness, arg_names, sig });
 pub struct VariantData<'tcx> {
     pub ctor_kind: CtorKind,
     pub discr: ty::VariantDiscr,
-
-    /// If this is a struct's only variant, this
-    /// is the index of the "struct ctor" item.
-    pub struct_ctor: Option<DefIndex>,
-
+    /// If this is unit or tuple-variant/struct, then this is the index of the ctor id.
+    pub ctor: Option<DefIndex>,
     /// If this is a tuple struct or variant
     /// ctor, this is its "function" signature.
     pub ctor_sig: Option<Lazy<ty::PolyFnSig<'tcx>>>,
@@ -463,7 +459,7 @@ pub struct VariantData<'tcx> {
 impl_stable_hash_for!(struct VariantData<'tcx> {
     ctor_kind,
     discr,
-    struct_ctor,
+    ctor,
     ctor_sig
 });
 
@@ -481,6 +477,15 @@ impl_stable_hash_for!(struct TraitData<'tcx> {
     paren_sugar,
     has_auto_impl,
     is_marker,
+    super_predicates
+});
+
+#[derive(RustcEncodable, RustcDecodable)]
+pub struct TraitAliasData<'tcx> {
+    pub super_predicates: Lazy<ty::GenericPredicates<'tcx>>,
+}
+
+impl_stable_hash_for!(struct TraitAliasData<'tcx> {
     super_predicates
 });
 
@@ -515,7 +520,7 @@ pub enum AssociatedContainer {
     ImplFinal,
 }
 
-impl_stable_hash_for!(enum ::schema::AssociatedContainer {
+impl_stable_hash_for!(enum crate::schema::AssociatedContainer {
     TraitRequired,
     TraitWithDefault,
     ImplDefault,

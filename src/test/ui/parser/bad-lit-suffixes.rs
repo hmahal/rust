@@ -1,31 +1,21 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-// compile-flags: -Z parse-only -Z continue-parse-after-error
+// compile-flags: -Z continue-parse-after-error
 
 
 extern
-    "C"suffix //~ ERROR ABI spec with a suffix is invalid
+    "C"suffix //~ ERROR suffixes on an ABI spec are invalid
     fn foo() {}
 
 extern
-    "C"suffix //~ ERROR ABI spec with a suffix is invalid
+    "C"suffix //~ ERROR suffixes on an ABI spec are invalid
 {}
 
 fn main() {
-    ""suffix; //~ ERROR string literal with a suffix is invalid
-    b""suffix; //~ ERROR byte string literal with a suffix is invalid
-    r#""#suffix; //~ ERROR string literal with a suffix is invalid
-    br#""#suffix; //~ ERROR byte string literal with a suffix is invalid
-    'a'suffix; //~ ERROR char literal with a suffix is invalid
-    b'a'suffix; //~ ERROR byte literal with a suffix is invalid
+    ""suffix; //~ ERROR suffixes on a string literal are invalid
+    b""suffix; //~ ERROR suffixes on a byte string literal are invalid
+    r#""#suffix; //~ ERROR suffixes on a string literal are invalid
+    br#""#suffix; //~ ERROR suffixes on a byte string literal are invalid
+    'a'suffix; //~ ERROR suffixes on a char literal are invalid
+    b'a'suffix; //~ ERROR suffixes on a byte literal are invalid
 
     1234u1024; //~ ERROR invalid width `1024` for integer literal
     1234i1024; //~ ERROR invalid width `1024` for integer literal

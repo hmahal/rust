@@ -1,45 +1,37 @@
-// Copyright 2012-2016 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 use rustc_target::spec::abi::{Abi};
 use syntax::ast;
 use syntax_pos::Span;
 
 use rustc::ty::{self, TyCtxt};
+use rustc::hir::def_id::DefId;
 use rustc::mir::{self, Mir, Location};
 use rustc_data_structures::bit_set::BitSet;
-use transform::{MirPass, MirSource};
+use crate::transform::{MirPass, MirSource};
 
-use dataflow::{do_dataflow, DebugFormatted};
-use dataflow::MoveDataParamEnv;
-use dataflow::BitDenotation;
-use dataflow::DataflowResults;
-use dataflow::{DefinitelyInitializedPlaces, MaybeInitializedPlaces, MaybeUninitializedPlaces};
-use dataflow::move_paths::{MovePathIndex, LookupResult};
-use dataflow::move_paths::{HasMoveData, MoveData};
-use dataflow;
+use crate::dataflow::{do_dataflow, DebugFormatted};
+use crate::dataflow::MoveDataParamEnv;
+use crate::dataflow::BitDenotation;
+use crate::dataflow::DataflowResults;
+use crate::dataflow::{
+    DefinitelyInitializedPlaces, MaybeInitializedPlaces, MaybeUninitializedPlaces
+};
+use crate::dataflow::move_paths::{MovePathIndex, LookupResult};
+use crate::dataflow::move_paths::{HasMoveData, MoveData};
+use crate::dataflow;
 
-use dataflow::has_rustc_mir_with;
+use crate::dataflow::has_rustc_mir_with;
 
 pub struct SanityCheck;
 
 impl MirPass for SanityCheck {
     fn run_pass<'a, 'tcx>(&self, tcx: TyCtxt<'a, 'tcx, 'tcx>,
-                          src: MirSource, mir: &mut Mir<'tcx>) {
-        let def_id = src.def_id;
-        let id = tcx.hir().as_local_node_id(def_id).unwrap();
+                          src: MirSource<'tcx>, mir: &mut Mir<'tcx>) {
+        let def_id = src.def_id();
         if !tcx.has_attr(def_id, "rustc_mir") {
-            debug!("skipping rustc_peek::SanityCheck on {}", tcx.item_path_str(def_id));
+            debug!("skipping rustc_peek::SanityCheck on {}", tcx.def_path_str(def_id));
             return;
         } else {
-            debug!("running rustc_peek::SanityCheck on {}", tcx.item_path_str(def_id));
+            debug!("running rustc_peek::SanityCheck on {}", tcx.def_path_str(def_id));
         }
 
         let attributes = tcx.get_attrs(def_id);
@@ -48,26 +40,26 @@ impl MirPass for SanityCheck {
         let mdpe = MoveDataParamEnv { move_data: move_data, param_env: param_env };
         let dead_unwinds = BitSet::new_empty(mir.basic_blocks().len());
         let flow_inits =
-            do_dataflow(tcx, mir, id, &attributes, &dead_unwinds,
+            do_dataflow(tcx, mir, def_id, &attributes, &dead_unwinds,
                         MaybeInitializedPlaces::new(tcx, mir, &mdpe),
                         |bd, i| DebugFormatted::new(&bd.move_data().move_paths[i]));
         let flow_uninits =
-            do_dataflow(tcx, mir, id, &attributes, &dead_unwinds,
+            do_dataflow(tcx, mir, def_id, &attributes, &dead_unwinds,
                         MaybeUninitializedPlaces::new(tcx, mir, &mdpe),
                         |bd, i| DebugFormatted::new(&bd.move_data().move_paths[i]));
         let flow_def_inits =
-            do_dataflow(tcx, mir, id, &attributes, &dead_unwinds,
+            do_dataflow(tcx, mir, def_id, &attributes, &dead_unwinds,
                         DefinitelyInitializedPlaces::new(tcx, mir, &mdpe),
                         |bd, i| DebugFormatted::new(&bd.move_data().move_paths[i]));
 
         if has_rustc_mir_with(&attributes, "rustc_peek_maybe_init").is_some() {
-            sanity_check_via_rustc_peek(tcx, mir, id, &attributes, &flow_inits);
+            sanity_check_via_rustc_peek(tcx, mir, def_id, &attributes, &flow_inits);
         }
         if has_rustc_mir_with(&attributes, "rustc_peek_maybe_uninit").is_some() {
-            sanity_check_via_rustc_peek(tcx, mir, id, &attributes, &flow_uninits);
+            sanity_check_via_rustc_peek(tcx, mir, def_id, &attributes, &flow_uninits);
         }
         if has_rustc_mir_with(&attributes, "rustc_peek_definite_init").is_some() {
-            sanity_check_via_rustc_peek(tcx, mir, id, &attributes, &flow_def_inits);
+            sanity_check_via_rustc_peek(tcx, mir, def_id, &attributes, &flow_def_inits);
         }
         if has_rustc_mir_with(&attributes, "stop_after_dataflow").is_some() {
             tcx.sess.fatal("stop_after_dataflow ended compilation");
@@ -93,12 +85,12 @@ impl MirPass for SanityCheck {
 /// errors are not intended to be used for unit tests.)
 pub fn sanity_check_via_rustc_peek<'a, 'tcx, O>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
                                                 mir: &Mir<'tcx>,
-                                                id: ast::NodeId,
+                                                def_id: DefId,
                                                 _attributes: &[ast::Attribute],
-                                                results: &DataflowResults<O>)
-    where O: BitDenotation<Idx=MovePathIndex> + HasMoveData<'tcx>
+                                                results: &DataflowResults<'tcx, O>)
+    where O: BitDenotation<'tcx, Idx=MovePathIndex> + HasMoveData<'tcx>
 {
-    debug!("sanity_check_via_rustc_peek id: {:?}", id);
+    debug!("sanity_check_via_rustc_peek def_id: {:?}", def_id);
     // FIXME: this is not DRY. Figure out way to abstract this and
     // `dataflow::build_sets`. (But note it is doing non-standard
     // stuff, so such generalization may not be realistic.)
@@ -110,9 +102,9 @@ pub fn sanity_check_via_rustc_peek<'a, 'tcx, O>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
 
 fn each_block<'a, 'tcx, O>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
                            mir: &Mir<'tcx>,
-                           results: &DataflowResults<O>,
+                           results: &DataflowResults<'tcx, O>,
                            bb: mir::BasicBlock) where
-    O: BitDenotation<Idx=MovePathIndex> + HasMoveData<'tcx>
+    O: BitDenotation<'tcx, Idx=MovePathIndex> + HasMoveData<'tcx>
 {
     let move_data = results.0.operator.move_data();
     let mir::BasicBlockData { ref statements, ref terminator, is_cleanup: _ } = mir[bb];
@@ -123,8 +115,8 @@ fn each_block<'a, 'tcx, O>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
     };
     assert!(args.len() == 1);
     let peek_arg_place = match args[0] {
-        mir::Operand::Copy(ref place @ mir::Place::Local(_)) |
-        mir::Operand::Move(ref place @ mir::Place::Local(_)) => Some(place),
+        mir::Operand::Copy(ref place @ mir::Place::Base(mir::PlaceBase::Local(_))) |
+        mir::Operand::Move(ref place @ mir::Place::Base(mir::PlaceBase::Local(_))) => Some(place),
         _ => None,
     };
 
@@ -162,7 +154,6 @@ fn each_block<'a, 'tcx, O>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
             mir::StatementKind::StorageDead(_) |
             mir::StatementKind::InlineAsm { .. } |
             mir::StatementKind::Retag { .. } |
-            mir::StatementKind::EscapeToRaw { .. } |
             mir::StatementKind::AscribeUserType(..) |
             mir::StatementKind::Nop => continue,
             mir::StatementKind::SetDiscriminant{ .. } =>

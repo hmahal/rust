@@ -1,22 +1,48 @@
-// Copyright 2018 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-use borrow_check::ArtificialField;
-use borrow_check::Overlap;
-use borrow_check::{Deep, Shallow, AccessDepth};
+use crate::borrow_check::ArtificialField;
+use crate::borrow_check::Overlap;
+use crate::borrow_check::{Deep, Shallow, AccessDepth};
 use rustc::hir;
-use rustc::mir::{BorrowKind, Mir, Place};
-use rustc::mir::{Projection, ProjectionElem};
+use rustc::mir::{BorrowKind, Mir, Place, PlaceBase, Projection, ProjectionElem, StaticKind};
 use rustc::ty::{self, TyCtxt};
 use std::cmp::max;
 
+/// When checking if a place conflicts with another place, this enum is used to influence decisions
+/// where a place might be equal or disjoint with another place, such as if `a[i] == a[j]`.
+/// `PlaceConflictBias::Overlap` would bias toward assuming that `i` might equal `j` and that these
+/// places overlap. `PlaceConflictBias::NoOverlap` assumes that for the purposes of the predicate
+/// being run in the calling context, the conservative choice is to assume the compared indices
+/// are disjoint (and therefore, do not overlap).
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+crate enum PlaceConflictBias {
+    Overlap,
+    NoOverlap,
+}
+
+/// Helper function for checking if places conflict with a mutable borrow and deep access depth.
+/// This is used to check for places conflicting outside of the borrow checking code (such as in
+/// dataflow).
+crate fn places_conflict<'gcx, 'tcx>(
+    tcx: TyCtxt<'_, 'gcx, 'tcx>,
+    mir: &Mir<'tcx>,
+    borrow_place: &Place<'tcx>,
+    access_place: &Place<'tcx>,
+    bias: PlaceConflictBias,
+) -> bool {
+    borrow_conflicts_with_place(
+        tcx,
+        mir,
+        borrow_place,
+        BorrowKind::Mut { allow_two_phase_borrow: true },
+        access_place,
+        AccessDepth::Deep,
+        bias,
+    )
+}
+
+/// Checks whether the `borrow_place` conflicts with the `access_place` given a borrow kind and
+/// access depth. The `bias` parameter is used to determine how the unknowable (comparing runtime
+/// array indices, for example) should be interpreted - this depends on what the caller wants in
+/// order to make the conservative choice and preserve soundness.
 pub(super) fn borrow_conflicts_with_place<'gcx, 'tcx>(
     tcx: TyCtxt<'_, 'gcx, 'tcx>,
     mir: &Mir<'tcx>,
@@ -24,16 +50,17 @@ pub(super) fn borrow_conflicts_with_place<'gcx, 'tcx>(
     borrow_kind: BorrowKind,
     access_place: &Place<'tcx>,
     access: AccessDepth,
+    bias: PlaceConflictBias,
 ) -> bool {
     debug!(
-        "borrow_conflicts_with_place({:?},{:?},{:?})",
-        borrow_place, access_place, access
+        "borrow_conflicts_with_place({:?}, {:?}, {:?}, {:?})",
+        borrow_place, access_place, access, bias,
     );
 
     // This Local/Local case is handled by the more general code below, but
     // it's so common that it's a speed win to check for it first.
-    if let Place::Local(l1) = borrow_place {
-        if let Place::Local(l2) = access_place {
+    if let Place::Base(PlaceBase::Local(l1)) = borrow_place {
+        if let Place::Base(PlaceBase::Local(l2)) = access_place {
             return l1 == l2;
         }
     }
@@ -46,7 +73,8 @@ pub(super) fn borrow_conflicts_with_place<'gcx, 'tcx>(
                 borrow_components,
                 borrow_kind,
                 access_components,
-                access
+                access,
+                bias,
             )
         })
     })
@@ -59,6 +87,7 @@ fn place_components_conflict<'gcx, 'tcx>(
     borrow_kind: BorrowKind,
     mut access_components: PlaceComponentsIter<'_, 'tcx>,
     access: AccessDepth,
+    bias: PlaceConflictBias,
 ) -> bool {
     // The borrowck rules for proving disjointness are applied from the "root" of the
     // borrow forwards, iterating over "similar" projections in lockstep until
@@ -121,7 +150,7 @@ fn place_components_conflict<'gcx, 'tcx>(
                 // check whether the components being borrowed vs
                 // accessed are disjoint (as in the second example,
                 // but not the first).
-                match place_element_conflict(tcx, mir, borrow_c, access_c) {
+                match place_element_conflict(tcx, mir, borrow_c, access_c, bias) {
                     Overlap::Arbitrary => {
                         // We have encountered different fields of potentially
                         // the same union - the borrow now partially overlaps.
@@ -162,18 +191,15 @@ fn place_components_conflict<'gcx, 'tcx>(
                     Place::Projection(box Projection { base, elem }) => (base, elem),
                     _ => bug!("place has no base?"),
                 };
-                let base_ty = base.ty(mir, tcx).to_ty(tcx);
+                let base_ty = base.ty(mir, tcx).ty;
 
                 match (elem, &base_ty.sty, access) {
-                    (_, _, Shallow(Some(ArtificialField::Discriminant)))
-                    | (_, _, Shallow(Some(ArtificialField::ArrayLength)))
+                    (_, _, Shallow(Some(ArtificialField::ArrayLength)))
                     | (_, _, Shallow(Some(ArtificialField::ShallowBorrow))) => {
-                        // The discriminant and array length are like
-                        // additional fields on the type; they do not
-                        // overlap any existing data there. Furthermore,
-                        // they cannot actually be a prefix of any
-                        // borrowed place (at least in MIR as it is
-                        // currently.)
+                        // The array length is like  additional fields on the
+                        // type; it does not overlap any existing data there.
+                        // Furthermore, if cannot actually be a prefix of any
+                        // borrowed place (at least in MIR as it is currently.)
                         //
                         // e.g., a (mutable) borrow of `a[5]` while we read the
                         // array length of `a`.
@@ -193,7 +219,7 @@ fn place_components_conflict<'gcx, 'tcx>(
                         bug!("Tracking borrow behind shared reference.");
                     }
                     (ProjectionElem::Deref, ty::Ref(_, _, hir::MutMutable), AccessDepth::Drop) => {
-                        // Values behind a mutatble reference are not access either by Dropping a
+                        // Values behind a mutable reference are not access either by dropping a
                         // value, or by StorageDead
                         debug!("borrow_conflicts_with_place: drop access behind ptr");
                         return false;
@@ -248,10 +274,10 @@ fn place_components_conflict<'gcx, 'tcx>(
 
 /// A linked list of places running up the stack; begins with the
 /// innermost place and extends to projections (e.g., `a.b` would have
-/// the place `a` with a "next" pointer to `a.b`).  Created by
+/// the place `a` with a "next" pointer to `a.b`). Created by
 /// `unroll_place`.
 ///
-/// N.B., this particular impl strategy is not the most obvious.  It was
+/// N.B., this particular impl strategy is not the most obvious. It was
 /// chosen because it makes a measurable difference to NLL
 /// performance, as this code (`borrow_conflicts_with_place`) is somewhat hot.
 struct PlaceComponents<'p, 'tcx: 'p> {
@@ -312,8 +338,7 @@ fn unroll_place<'tcx, R>(
             op,
         ),
 
-        Place::Promoted(_) |
-        Place::Local(_) | Place::Static(_) => {
+        Place::Base(PlaceBase::Local(_)) | Place::Base(PlaceBase::Static(_)) => {
             let list = PlaceComponents {
                 component: place,
                 next,
@@ -331,9 +356,10 @@ fn place_element_conflict<'a, 'gcx: 'tcx, 'tcx>(
     mir: &Mir<'tcx>,
     elem1: &Place<'tcx>,
     elem2: &Place<'tcx>,
+    bias: PlaceConflictBias,
 ) -> Overlap {
     match (elem1, elem2) {
-        (Place::Local(l1), Place::Local(l2)) => {
+        (Place::Base(PlaceBase::Local(l1)), Place::Base(PlaceBase::Local(l2))) => {
             if l1 == l2 {
                 // the same local - base case, equal
                 debug!("place_element_conflict: DISJOINT-OR-EQ-LOCAL");
@@ -344,40 +370,47 @@ fn place_element_conflict<'a, 'gcx: 'tcx, 'tcx>(
                 Overlap::Disjoint
             }
         }
-        (Place::Static(static1), Place::Static(static2)) => {
-            if static1.def_id != static2.def_id {
-                debug!("place_element_conflict: DISJOINT-STATIC");
-                Overlap::Disjoint
-            } else if tcx.is_static(static1.def_id) == Some(hir::Mutability::MutMutable) {
-                // We ignore mutable statics - they can only be unsafe code.
-                debug!("place_element_conflict: IGNORE-STATIC-MUT");
-                Overlap::Disjoint
-            } else {
-                debug!("place_element_conflict: DISJOINT-OR-EQ-STATIC");
-                Overlap::EqualOrDisjoint
-            }
-        }
-        (Place::Promoted(p1), Place::Promoted(p2)) => {
-            if p1.0 == p2.0 {
-                if let ty::Array(_, size) = p1.1.sty {
-                    if size.unwrap_usize(tcx) == 0 {
-                        // Ignore conflicts with promoted [T; 0].
-                        debug!("place_element_conflict: IGNORE-LEN-0-PROMOTED");
-                        return Overlap::Disjoint;
+        (Place::Base(PlaceBase::Static(s1)), Place::Base(PlaceBase::Static(s2))) => {
+            match (&s1.kind, &s2.kind) {
+                (StaticKind::Static(def_id_1), StaticKind::Static(def_id_2)) => {
+                    if def_id_1 != def_id_2 {
+                        debug!("place_element_conflict: DISJOINT-STATIC");
+                        Overlap::Disjoint
+                    } else if tcx.is_static(*def_id_1) == Some(hir::Mutability::MutMutable) {
+                        // We ignore mutable statics - they can only be unsafe code.
+                        debug!("place_element_conflict: IGNORE-STATIC-MUT");
+                        Overlap::Disjoint
+                    } else {
+                        debug!("place_element_conflict: DISJOINT-OR-EQ-STATIC");
+                        Overlap::EqualOrDisjoint
                     }
+                },
+                (StaticKind::Promoted(promoted_1), StaticKind::Promoted(promoted_2)) => {
+                    if promoted_1 == promoted_2 {
+                        if let ty::Array(_, size) = s1.ty.sty {
+                            if size.unwrap_usize(tcx) == 0 {
+                                // Ignore conflicts with promoted [T; 0].
+                                debug!("place_element_conflict: IGNORE-LEN-0-PROMOTED");
+                                return Overlap::Disjoint;
+                            }
+                        }
+                        // the same promoted - base case, equal
+                        debug!("place_element_conflict: DISJOINT-OR-EQ-PROMOTED");
+                        Overlap::EqualOrDisjoint
+                    } else {
+                        // different promoteds - base case, disjoint
+                        debug!("place_element_conflict: DISJOINT-PROMOTED");
+                        Overlap::Disjoint
+                    }
+                },
+                (_, _) => {
+                    debug!("place_element_conflict: DISJOINT-STATIC-PROMOTED");
+                    Overlap::Disjoint
                 }
-                // the same promoted - base case, equal
-                debug!("place_element_conflict: DISJOINT-OR-EQ-PROMOTED");
-                Overlap::EqualOrDisjoint
-            } else {
-                // different promoteds - base case, disjoint
-                debug!("place_element_conflict: DISJOINT-PROMOTED");
-                Overlap::Disjoint
             }
         }
-        (Place::Local(_), Place::Promoted(_)) | (Place::Promoted(_), Place::Local(_)) |
-        (Place::Promoted(_), Place::Static(_)) | (Place::Static(_), Place::Promoted(_)) |
-        (Place::Local(_), Place::Static(_)) | (Place::Static(_), Place::Local(_)) => {
+        (Place::Base(PlaceBase::Local(_)), Place::Base(PlaceBase::Static(_))) |
+        (Place::Base(PlaceBase::Static(_)), Place::Base(PlaceBase::Local(_))) => {
             debug!("place_element_conflict: DISJOINT-STATIC-LOCAL-PROMOTED");
             Overlap::Disjoint
         }
@@ -394,7 +427,7 @@ fn place_element_conflict<'a, 'gcx: 'tcx, 'tcx>(
                         debug!("place_element_conflict: DISJOINT-OR-EQ-FIELD");
                         Overlap::EqualOrDisjoint
                     } else {
-                        let ty = pi1.base.ty(mir, tcx).to_ty(tcx);
+                        let ty = pi1.base.ty(mir, tcx).ty;
                         match ty.sty {
                             ty::Adt(def, _) if def.is_union() => {
                                 // Different fields of a union, we are basically stuck.
@@ -448,10 +481,20 @@ fn place_element_conflict<'a, 'gcx: 'tcx, 'tcx>(
                 | (ProjectionElem::ConstantIndex { .. }, ProjectionElem::Index(..))
                 | (ProjectionElem::Subslice { .. }, ProjectionElem::Index(..)) => {
                     // Array indexes (`a[0]` vs. `a[i]`). These can either be disjoint
-                    // (if the indexes differ) or equal (if they are the same), so this
-                    // is the recursive case that gives "equal *or* disjoint" its meaning.
-                    debug!("place_element_conflict: DISJOINT-OR-EQ-ARRAY-INDEX");
-                    Overlap::EqualOrDisjoint
+                    // (if the indexes differ) or equal (if they are the same).
+                    match bias {
+                        PlaceConflictBias::Overlap => {
+                            // If we are biased towards overlapping, then this is the recursive
+                            // case that gives "equal *or* disjoint" its meaning.
+                            debug!("place_element_conflict: DISJOINT-OR-EQ-ARRAY-INDEX");
+                            Overlap::EqualOrDisjoint
+                        }
+                        PlaceConflictBias::NoOverlap => {
+                            // If we are biased towards no overlapping, then this is disjoint.
+                            debug!("place_element_conflict: DISJOINT-ARRAY-INDEX");
+                            Overlap::Disjoint
+                        }
+                    }
                 }
                 (ProjectionElem::ConstantIndex { offset: o1, min_length: _, from_end: false },
                     ProjectionElem::ConstantIndex { offset: o2, min_length: _, from_end: false })

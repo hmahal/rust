@@ -1,32 +1,21 @@
-// Copyright 2012-2013 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Generalized type relating mechanism.
 //!
 //! A type relation `R` relates a pair of values `(A, B)`. `A and B` are usually
 //! types or regions but can be other things. Examples of type relations are
 //! subtyping, type equality, etc.
 
-use hir::def_id::DefId;
-use mir::interpret::ConstValue;
-use ty::subst::{Kind, UnpackedKind, Substs};
-use ty::{self, Ty, TyCtxt, TypeFoldable};
-use ty::error::{ExpectedFound, TypeError};
-use mir::interpret::GlobalId;
-use util::common::ErrorReported;
+use crate::hir::def_id::DefId;
+use crate::ty::subst::{Kind, UnpackedKind, SubstsRef};
+use crate::ty::{self, Ty, TyCtxt, TypeFoldable};
+use crate::ty::error::{ExpectedFound, TypeError};
+use crate::mir::interpret::{GlobalId, ConstValue};
+use crate::util::common::ErrorReported;
 use syntax_pos::DUMMY_SP;
 use std::rc::Rc;
 use std::iter;
 use rustc_target::spec::abi;
-use hir as ast;
-use traits;
+use crate::hir as ast;
+use crate::traits;
 
 pub type RelateResult<'tcx, T> = Result<T, TypeError<'tcx>>;
 
@@ -41,7 +30,7 @@ pub trait TypeRelation<'a, 'gcx: 'a+'tcx, 'tcx: 'a> : Sized {
     /// Returns a static string we can use for printouts.
     fn tag(&self) -> &'static str;
 
-    /// Returns true if the value `a` is the "expected" type in the
+    /// Returns `true` if the value `a` is the "expected" type in the
     /// relation. Just affects error messages.
     fn a_is_expected(&self) -> bool;
 
@@ -61,9 +50,9 @@ pub trait TypeRelation<'a, 'gcx: 'a+'tcx, 'tcx: 'a> : Sized {
     /// accordingly.
     fn relate_item_substs(&mut self,
                           item_def_id: DefId,
-                          a_subst: &'tcx Substs<'tcx>,
-                          b_subst: &'tcx Substs<'tcx>)
-                          -> RelateResult<'tcx, &'tcx Substs<'tcx>>
+                          a_subst: SubstsRef<'tcx>,
+                          b_subst: SubstsRef<'tcx>)
+                          -> RelateResult<'tcx, SubstsRef<'tcx>>
     {
         debug!("relate_item_substs(item_def_id={:?}, a_subst={:?}, b_subst={:?})",
                item_def_id,
@@ -134,9 +123,9 @@ impl<'tcx> Relate<'tcx> for ty::TypeAndMut<'tcx> {
 
 pub fn relate_substs<'a, 'gcx, 'tcx, R>(relation: &mut R,
                                         variances: Option<&Vec<ty::Variance>>,
-                                        a_subst: &'tcx Substs<'tcx>,
-                                        b_subst: &'tcx Substs<'tcx>)
-                                        -> RelateResult<'tcx, &'tcx Substs<'tcx>>
+                                        a_subst: SubstsRef<'tcx>,
+                                        b_subst: SubstsRef<'tcx>)
+                                        -> RelateResult<'tcx, SubstsRef<'tcx>>
     where R: TypeRelation<'a, 'gcx, 'tcx>, 'gcx: 'a+'tcx, 'tcx: 'a
 {
     let tcx = relation.tcx();
@@ -158,9 +147,9 @@ impl<'tcx> Relate<'tcx> for ty::FnSig<'tcx> {
     {
         let tcx = relation.tcx();
 
-        if a.variadic != b.variadic {
+        if a.c_variadic != b.c_variadic {
             return Err(TypeError::VariadicMismatch(
-                expected_found(relation, &a.variadic, &b.variadic)));
+                expected_found(relation, &a.c_variadic, &b.c_variadic)));
         }
         let unsafety = relation.relate(&a.unsafety, &b.unsafety)?;
         let abi = relation.relate(&a.abi, &b.abi)?;
@@ -182,7 +171,7 @@ impl<'tcx> Relate<'tcx> for ty::FnSig<'tcx> {
             });
         Ok(ty::FnSig {
             inputs_and_output: tcx.mk_type_list(inputs_and_output)?,
-            variadic: a.variadic,
+            c_variadic: a.c_variadic,
             unsafety,
             abi,
         })
@@ -362,10 +351,8 @@ pub fn super_relate_tys<'a, 'gcx, 'tcx, R>(relation: &mut R,
     where R: TypeRelation<'a, 'gcx, 'tcx>, 'gcx: 'a+'tcx, 'tcx: 'a
 {
     let tcx = relation.tcx();
-    let a_sty = &a.sty;
-    let b_sty = &b.sty;
-    debug!("super_relate_tys: a_sty={:?} b_sty={:?}", a_sty, b_sty);
-    match (a_sty, b_sty) {
+    debug!("super_relate_tys: a={:?} b={:?}", a, b);
+    match (&a.sty, &b.sty) {
         (&ty::Infer(_), _) |
         (_, &ty::Infer(_)) =>
         {
@@ -479,12 +466,7 @@ pub fn super_relate_tys<'a, 'gcx, 'tcx, R>(relation: &mut R,
         (&ty::Array(a_t, sz_a), &ty::Array(b_t, sz_b)) =>
         {
             let t = relation.relate(&a_t, &b_t)?;
-            assert_eq!(sz_a.ty, tcx.types.usize);
-            assert_eq!(sz_b.ty, tcx.types.usize);
-            let to_u64 = |x: &'tcx ty::Const<'tcx>| -> Result<u64, ErrorReported> {
-                if let Some(s) = x.assert_usize(tcx) {
-                    return Ok(s);
-                }
+            let to_u64 = |x: ty::Const<'tcx>| -> Result<u64, ErrorReported> {
                 match x.val {
                     ConstValue::Unevaluated(def_id, substs) => {
                         // FIXME(eddyb) get the right param_env.
@@ -512,14 +494,14 @@ pub fn super_relate_tys<'a, 'gcx, 'tcx, R>(relation: &mut R,
                             "array length could not be evaluated");
                         Err(ErrorReported)
                     }
-                    _ => {
+                    _ => x.assert_usize(tcx).ok_or_else(|| {
                         tcx.sess.delay_span_bug(DUMMY_SP,
-                            &format!("arrays should not have {:?} as length", x));
-                        Err(ErrorReported)
-                    }
+                            "array length could not be evaluated");
+                        ErrorReported
+                    })
                 }
             };
-            match (to_u64(sz_a), to_u64(sz_b)) {
+            match (to_u64(*sz_a), to_u64(*sz_b)) {
                 (Ok(sz_a_u64), Ok(sz_b_u64)) => {
                     if sz_a_u64 == sz_b_u64 {
                         Ok(tcx.mk_ty(ty::Array(t, sz_a)))
@@ -604,7 +586,7 @@ impl<'tcx> Relate<'tcx> for &'tcx ty::List<ty::ExistentialPredicate<'tcx>> {
 
         let tcx = relation.tcx();
         let v = a.iter().zip(b.iter()).map(|(ep_a, ep_b)| {
-            use ty::ExistentialPredicate::*;
+            use crate::ty::ExistentialPredicate::*;
             match (*ep_a, *ep_b) {
                 (Trait(ref a), Trait(ref b)) => Ok(Trait(relation.relate(a, b)?)),
                 (Projection(ref a), Projection(ref b)) => Ok(Projection(relation.relate(a, b)?)),
@@ -640,11 +622,11 @@ impl<'tcx> Relate<'tcx> for ty::GeneratorSubsts<'tcx> {
     }
 }
 
-impl<'tcx> Relate<'tcx> for &'tcx Substs<'tcx> {
+impl<'tcx> Relate<'tcx> for SubstsRef<'tcx> {
     fn relate<'a, 'gcx, R>(relation: &mut R,
-                           a: &&'tcx Substs<'tcx>,
-                           b: &&'tcx Substs<'tcx>)
-                           -> RelateResult<'tcx, &'tcx Substs<'tcx>>
+                           a: &SubstsRef<'tcx>,
+                           b: &SubstsRef<'tcx>)
+                           -> RelateResult<'tcx, SubstsRef<'tcx>>
         where R: TypeRelation<'a, 'gcx, 'tcx>, 'gcx: 'a+'tcx, 'tcx: 'a
     {
         relate_substs(relation, None, a, b)
@@ -721,6 +703,9 @@ impl<'tcx> Relate<'tcx> for Kind<'tcx> {
             (UnpackedKind::Type(unpacked), x) => {
                 bug!("impossible case reached: can't relate: {:?} with {:?}", unpacked, x)
             }
+            (UnpackedKind::Const(_), _) => {
+                unimplemented!() // FIXME(const_generics)
+            }
         }
     }
 }
@@ -762,7 +747,7 @@ impl<'tcx> Relate<'tcx> for traits::WhereClause<'tcx> {
     ) -> RelateResult<'tcx, traits::WhereClause<'tcx>>
         where R: TypeRelation<'a, 'gcx, 'tcx>, 'gcx: 'tcx, 'tcx: 'a
     {
-        use traits::WhereClause::*;
+        use crate::traits::WhereClause::*;
         match (a, b) {
             (Implemented(a_pred), Implemented(b_pred)) => {
                 Ok(Implemented(relation.relate(a_pred, b_pred)?))
@@ -799,7 +784,7 @@ impl<'tcx> Relate<'tcx> for traits::WellFormed<'tcx> {
     ) -> RelateResult<'tcx, traits::WellFormed<'tcx>>
         where R: TypeRelation<'a, 'gcx, 'tcx>, 'gcx: 'tcx, 'tcx: 'a
     {
-        use traits::WellFormed::*;
+        use crate::traits::WellFormed::*;
         match (a, b) {
             (Trait(a_pred), Trait(b_pred)) => Ok(Trait(relation.relate(a_pred, b_pred)?)),
             (Ty(a_ty), Ty(b_ty)) => Ok(Ty(relation.relate(a_ty, b_ty)?)),
@@ -816,7 +801,7 @@ impl<'tcx> Relate<'tcx> for traits::FromEnv<'tcx> {
     ) -> RelateResult<'tcx, traits::FromEnv<'tcx>>
         where R: TypeRelation<'a, 'gcx, 'tcx>, 'gcx: 'tcx, 'tcx: 'a
     {
-        use traits::FromEnv::*;
+        use crate::traits::FromEnv::*;
         match (a, b) {
             (Trait(a_pred), Trait(b_pred)) => Ok(Trait(relation.relate(a_pred, b_pred)?)),
             (Ty(a_ty), Ty(b_ty)) => Ok(Ty(relation.relate(a_ty, b_ty)?)),
@@ -833,7 +818,7 @@ impl<'tcx> Relate<'tcx> for traits::DomainGoal<'tcx> {
     ) -> RelateResult<'tcx, traits::DomainGoal<'tcx>>
         where R: TypeRelation<'a, 'gcx, 'tcx>, 'gcx: 'tcx, 'tcx: 'a
     {
-        use traits::DomainGoal::*;
+        use crate::traits::DomainGoal::*;
         match (a, b) {
             (Holds(a_wc), Holds(b_wc)) => Ok(Holds(relation.relate(a_wc, b_wc)?)),
             (WellFormed(a_wf), WellFormed(b_wf)) => Ok(WellFormed(relation.relate(a_wf, b_wf)?)),
@@ -856,7 +841,7 @@ impl<'tcx> Relate<'tcx> for traits::Goal<'tcx> {
     ) -> RelateResult<'tcx, traits::Goal<'tcx>>
         where R: TypeRelation<'a, 'gcx, 'tcx>, 'gcx: 'tcx, 'tcx: 'a
     {
-        use traits::GoalKind::*;
+        use crate::traits::GoalKind::*;
         match (a, b) {
             (Implies(a_clauses, a_goal), Implies(b_clauses, b_goal)) => {
                 let clauses = relation.relate(a_clauses, b_clauses)?;
@@ -920,7 +905,7 @@ impl<'tcx> Relate<'tcx> for traits::Clause<'tcx> {
     ) -> RelateResult<'tcx, traits::Clause<'tcx>>
         where R: TypeRelation<'a, 'gcx, 'tcx>, 'gcx: 'tcx, 'tcx: 'a
     {
-        use traits::Clause::*;
+        use crate::traits::Clause::*;
         match (a, b) {
             (Implies(a_clause), Implies(b_clause)) => {
                 let clause = relation.relate(a_clause, b_clause)?;

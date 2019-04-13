@@ -1,13 +1,4 @@
 #!/usr/bin/env bash
-# Copyright 2016 The Rust Project Developers. See the COPYRIGHT
-# file at the top-level directory of this distribution and at
-# http://rust-lang.org/COPYRIGHT.
-#
-# Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-# http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-# <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-# option. This file may not be copied, modified, or distributed
-# except according to those terms.
 
 set -e
 
@@ -21,6 +12,9 @@ ci_dir="`dirname $docker_dir`"
 src_dir="`dirname $ci_dir`"
 root_dir="`dirname $src_dir`"
 
+objdir=$root_dir/obj
+dist=$objdir/build/dist
+
 source "$ci_dir/shared.sh"
 
 travis_fold start build_docker
@@ -28,17 +22,30 @@ travis_time_start
 
 if [ -f "$docker_dir/$image/Dockerfile" ]; then
     if [ "$CI" != "" ]; then
-      cksum=$(find $docker_dir/$image $docker_dir/scripts -type f | \
-        sort | \
-        xargs cat | \
-        sha512sum | \
+      hash_key=/tmp/.docker-hash-key.txt
+      rm -f "${hash_key}"
+      echo $image >> $hash_key
+
+      cat "$docker_dir/$image/Dockerfile" >> $hash_key
+      # Look for all source files involves in the COPY command
+      copied_files=/tmp/.docker-copied-files.txt
+      rm -f "$copied_files"
+      for i in $(sed -n -e 's/^COPY \(.*\) .*$/\1/p' "$docker_dir/$image/Dockerfile"); do
+        # List the file names
+        find "$docker_dir/$i" -type f >> $copied_files
+      done
+      # Sort the file names and cat the content into the hash key
+      sort $copied_files | xargs cat >> $hash_key
+
+      docker --version >> $hash_key
+      cksum=$(sha512sum $hash_key | \
         awk '{print $1}')
       s3url="s3://$SCCACHE_BUCKET/docker/$cksum"
       url="https://s3-us-west-1.amazonaws.com/$SCCACHE_BUCKET/docker/$cksum"
       echo "Attempting to download $s3url"
       rm -f /tmp/rustci_docker_cache
       set +e
-      retry curl -f -L -C - -o /tmp/rustci_docker_cache "$url"
+      retry curl -y 30 -Y 10 --connect-timeout 30 -f -L -C - -o /tmp/rustci_docker_cache "$url"
       loaded_images=$(docker load -i /tmp/rustci_docker_cache | sed 's/.* sha/sha/')
       set -e
       echo "Downloaded containers:\n$loaded_images"
@@ -73,6 +80,11 @@ if [ -f "$docker_dir/$image/Dockerfile" ]; then
       else
         echo "Looks like docker image is the same as before, not uploading"
       fi
+      # Record the container image for reuse, e.g. by rustup.rs builds
+      info="$dist/image-$image.txt"
+      mkdir -p "$dist"
+      echo "$url" >"$info"
+      echo "$digest" >>"$info"
     fi
 elif [ -f "$docker_dir/disabled/$image/Dockerfile" ]; then
     if [ -n "$TRAVIS_OS_NAME" ]; then
@@ -94,8 +106,6 @@ fi
 
 travis_fold end build_docker
 travis_time_finish
-
-objdir=$root_dir/obj
 
 mkdir -p $HOME/.cargo
 mkdir -p $objdir/tmp

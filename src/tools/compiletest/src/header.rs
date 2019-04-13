@@ -1,28 +1,18 @@
-// Copyright 2012-2013 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 use std::env;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
-use common::{self, CompareMode, Config, Mode};
-use util;
+use crate::common::{self, CompareMode, Config, Mode};
+use crate::util;
 
-use extract_gdb_version;
+use crate::extract_gdb_version;
 
 /// Whether to ignore the test.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Ignore {
-    /// Run it.
+    /// Runs it.
     Run,
     /// Ignore it totally.
     Ignore,
@@ -121,6 +111,11 @@ impl EarlyProps {
                 if ignore_llvm(config, ln) {
                     props.ignore = Ignore::Ignore;
                 }
+
+                if config.run_clang_based_tests_with.is_none() &&
+                   config.parse_needs_matching_clang(ln) {
+                    props.ignore = Ignore::Ignore;
+                }
             }
 
             if (config.mode == common::DebugInfoGdb || config.mode == common::DebugInfoBoth) &&
@@ -205,7 +200,7 @@ impl EarlyProps {
         fn ignore_lldb(config: &Config, line: &str) -> bool {
             if let Some(ref actual_version) = config.lldb_version {
                 if line.starts_with("min-lldb-version") {
-                    let min_version = line.trim_right()
+                    let min_version = line.trim_end()
                         .rsplit(' ')
                         .next()
                         .expect("Malformed lldb version directive");
@@ -228,7 +223,7 @@ impl EarlyProps {
             }
             if let Some(ref actual_version) = config.llvm_version {
                 if line.starts_with("min-llvm-version") {
-                    let min_version = line.trim_right()
+                    let min_version = line.trim_end()
                         .rsplit(' ')
                         .next()
                         .expect("Malformed llvm version directive");
@@ -236,7 +231,7 @@ impl EarlyProps {
                     // version
                     &actual_version[..] < min_version
                 } else if line.starts_with("min-system-llvm-version") {
-                    let min_version = line.trim_right()
+                    let min_version = line.trim_end()
                         .rsplit(' ')
                         .next()
                         .expect("Malformed llvm version directive");
@@ -308,6 +303,10 @@ pub struct TestProps {
     // For UI tests, allows compiler to generate arbitrary output to stderr
     pub dont_check_compiler_stderr: bool,
     // Don't force a --crate-type=dylib flag on the command line
+    //
+    // Set this for example if you have an auxiliary test file that contains
+    // a proc-macro and needs `#![crate_type = "proc-macro"]`. This ensures
+    // that the aux file is compiled as a `proc-macro` and not as a `dylib`.
     pub no_prefer_dynamic: bool,
     // Run --pretty expanded when running pretty printing tests
     pub pretty_expanded: bool,
@@ -338,8 +337,12 @@ pub struct TestProps {
     pub normalize_stdout: Vec<(String, String)>,
     pub normalize_stderr: Vec<(String, String)>,
     pub failure_status: i32,
+    // Whether or not `rustfix` should apply the `CodeSuggestion`s of this test and compile the
+    // resulting Rust code.
     pub run_rustfix: bool,
+    // If true, `rustfix` will only apply `MachineApplicable` suggestions.
     pub rustfix_only_machine_applicable: bool,
+    pub assembly_output: Option<String>,
 }
 
 impl TestProps {
@@ -375,6 +378,7 @@ impl TestProps {
             failure_status: -1,
             run_rustfix: false,
             rustfix_only_machine_applicable: false,
+            assembly_output: None,
         }
     }
 
@@ -394,7 +398,7 @@ impl TestProps {
         props
     }
 
-    /// Load properties from `testfile` into `props`. If a property is
+    /// Loads properties from `testfile` into `props`. If a property is
     /// tied to a particular revision `foo` (indicated by writing
     /// `//[foo]`), then the property is ignored unless `cfg` is
     /// `Some("foo")`.
@@ -490,7 +494,7 @@ impl TestProps {
             }
 
             if !self.compile_pass {
-                // run-pass implies must_compile_successfully
+                // run-pass implies compile_pass
                 self.compile_pass = config.parse_compile_pass(ln) || self.run_pass;
             }
 
@@ -522,6 +526,10 @@ impl TestProps {
                 self.rustfix_only_machine_applicable =
                     config.parse_rustfix_only_machine_applicable(ln);
             }
+
+            if self.assembly_output.is_none() {
+                self.assembly_output = config.parse_assembly_output(ln);
+            }
         });
 
         if self.failure_status == -1 {
@@ -552,6 +560,8 @@ fn iter_header(testfile: &Path, cfg: Option<&str>, it: &mut dyn FnMut(&str)) {
         "#"
     };
 
+    // FIXME: would be nice to allow some whitespace between comment and brace :)
+    // It took me like 2 days to debug why compile-flags weren’t taken into account for my test :)
     let comment_with_brace = comment.to_string() + "[";
 
     let rdr = BufReader::new(File::open(testfile).unwrap());
@@ -573,14 +583,14 @@ fn iter_header(testfile: &Path, cfg: Option<&str>, it: &mut dyn FnMut(&str)) {
                     None => false,
                 };
                 if matches {
-                    it(ln[(close_brace + 1)..].trim_left());
+                    it(ln[(close_brace + 1)..].trim_start());
                 }
             } else {
                 panic!("malformed condition directive: expected `{}foo]`, found `{}`",
                         comment_with_brace, ln)
             }
         } else if ln.starts_with(comment) {
-            it(ln[comment.len() ..].trim_left());
+            it(ln[comment.len() ..].trim_start());
         }
     }
     return;
@@ -597,6 +607,7 @@ impl Config {
 
     fn parse_aux_build(&self, line: &str) -> Option<String> {
         self.parse_name_value_directive(line, "aux-build")
+            .map(|r| r.trim().to_string())
     }
 
     fn parse_compile_flags(&self, line: &str) -> Option<String> {
@@ -679,6 +690,11 @@ impl Config {
         self.parse_name_directive(line, "skip-codegen")
     }
 
+    fn parse_assembly_output(&self, line: &str) -> Option<String> {
+        self.parse_name_value_directive(line, "assembly-output")
+            .map(|r| r.trim().to_string())
+    }
+
     fn parse_env(&self, line: &str, name: &str) -> Option<(String, String)> {
         self.parse_name_value_directive(line, name).map(|nv| {
             // nv is either FOO or FOO=BAR
@@ -713,6 +729,10 @@ impl Config {
         } else {
             None
         }
+    }
+
+    fn parse_needs_matching_clang(&self, line: &str) -> bool {
+        self.parse_name_directive(line, "needs-matching-clang")
     }
 
     /// Parses a name-value directive which contains config-specific information, e.g., `ignore-x86`
@@ -872,4 +892,30 @@ fn parse_normalization_string(line: &mut &str) -> Option<String> {
     let result = line[begin..end].to_owned();
     *line = &line[end + 1..];
     Some(result)
+}
+
+#[test]
+fn test_parse_normalization_string() {
+    let mut s = "normalize-stderr-32bit: \"something (32 bits)\" -> \"something ($WORD bits)\".";
+    let first = parse_normalization_string(&mut s);
+    assert_eq!(first, Some("something (32 bits)".to_owned()));
+    assert_eq!(s, " -> \"something ($WORD bits)\".");
+
+    // Nothing to normalize (No quotes)
+    let mut s = "normalize-stderr-32bit: something (32 bits) -> something ($WORD bits).";
+    let first = parse_normalization_string(&mut s);
+    assert_eq!(first, None);
+    assert_eq!(s, r#"normalize-stderr-32bit: something (32 bits) -> something ($WORD bits)."#);
+
+    // Nothing to normalize (Only a single quote)
+    let mut s = "normalize-stderr-32bit: \"something (32 bits) -> something ($WORD bits).";
+    let first = parse_normalization_string(&mut s);
+    assert_eq!(first, None);
+    assert_eq!(s, "normalize-stderr-32bit: \"something (32 bits) -> something ($WORD bits).");
+
+    // Nothing to normalize (Three quotes)
+    let mut s = "normalize-stderr-32bit: \"something (32 bits)\" -> \"something ($WORD bits).";
+    let first = parse_normalization_string(&mut s);
+    assert_eq!(first, Some("something (32 bits)".to_owned()));
+    assert_eq!(s, " -> \"something ($WORD bits).");
 }

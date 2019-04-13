@@ -1,13 +1,3 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 macro_rules! int_module { ($T:ident, $T_i:ident) => (
 #[cfg(test)]
 mod tests {
@@ -22,7 +12,7 @@ mod tests {
     fn test_overflows() {
         assert!(MAX > 0);
         assert!(MIN <= 0);
-        assert!(MIN + MAX + 1 == 0);
+        assert_eq!(MIN + MAX + 1, 0);
     }
 
     #[test]
@@ -31,23 +21,23 @@ mod tests {
     }
 
     #[test]
-    fn test_mod_euc() {
-        assert!((-1 as $T).mod_euc(MIN) == MAX);
+    fn test_rem_euclid() {
+        assert_eq!((-1 as $T).rem_euclid(MIN), MAX);
     }
 
     #[test]
     pub fn test_abs() {
-        assert!((1 as $T).abs() == 1 as $T);
-        assert!((0 as $T).abs() == 0 as $T);
-        assert!((-1 as $T).abs() == 1 as $T);
+        assert_eq!((1 as $T).abs(), 1 as $T);
+        assert_eq!((0 as $T).abs(), 0 as $T);
+        assert_eq!((-1 as $T).abs(), 1 as $T);
     }
 
     #[test]
     fn test_signum() {
-        assert!((1 as $T).signum() == 1 as $T);
-        assert!((0 as $T).signum() == 0 as $T);
-        assert!((-0 as $T).signum() == 0 as $T);
-        assert!((-1 as $T).signum() == -1 as $T);
+        assert_eq!((1 as $T).signum(), 1 as $T);
+        assert_eq!((0 as $T).signum(), 0 as $T);
+        assert_eq!((-0 as $T).signum(), 0 as $T);
+        assert_eq!((-1 as $T).signum(), -1 as $T);
     }
 
     #[test]
@@ -68,12 +58,12 @@ mod tests {
 
     #[test]
     fn test_bitwise_operators() {
-        assert!(0b1110 as $T == (0b1100 as $T).bitor(0b1010 as $T));
-        assert!(0b1000 as $T == (0b1100 as $T).bitand(0b1010 as $T));
-        assert!(0b0110 as $T == (0b1100 as $T).bitxor(0b1010 as $T));
-        assert!(0b1110 as $T == (0b0111 as $T).shl(1));
-        assert!(0b0111 as $T == (0b1110 as $T).shr(1));
-        assert!(-(0b11 as $T) - (1 as $T) == (0b11 as $T).not());
+        assert_eq!(0b1110 as $T, (0b1100 as $T).bitor(0b1010 as $T));
+        assert_eq!(0b1000 as $T, (0b1100 as $T).bitand(0b1010 as $T));
+        assert_eq!(0b0110 as $T, (0b1100 as $T).bitxor(0b1010 as $T));
+        assert_eq!(0b1110 as $T, (0b0111 as $T).shl(1));
+        assert_eq!(0b0111 as $T, (0b1110 as $T).shr(1));
+        assert_eq!(-(0b11 as $T) - (1 as $T), (0b11 as $T).not());
     }
 
     const A: $T = 0b0101100;
@@ -85,17 +75,17 @@ mod tests {
 
     #[test]
     fn test_count_ones() {
-        assert!(A.count_ones() == 3);
-        assert!(B.count_ones() == 2);
-        assert!(C.count_ones() == 5);
+        assert_eq!(A.count_ones(), 3);
+        assert_eq!(B.count_ones(), 2);
+        assert_eq!(C.count_ones(), 5);
     }
 
     #[test]
     fn test_count_zeros() {
         let bits = mem::size_of::<$T>() * 8;
-        assert!(A.count_zeros() == bits as u32 - 3);
-        assert!(B.count_zeros() == bits as u32 - 2);
-        assert!(C.count_zeros() == bits as u32 - 5);
+        assert_eq!(A.count_zeros(), bits as u32 - 3);
+        assert_eq!(B.count_zeros(), bits as u32 - 2);
+        assert_eq!(C.count_zeros(), bits as u32 - 5);
     }
 
     #[test]
@@ -158,9 +148,9 @@ mod tests {
 
     #[test]
     fn test_signed_checked_div() {
-        assert!((10 as $T).checked_div(2) == Some(5));
-        assert!((5 as $T).checked_div(0) == None);
-        assert!(isize::MIN.checked_div(-1) == None);
+        assert_eq!((10 as $T).checked_div(2), Some(5));
+        assert_eq!((5 as $T).checked_div(0), None);
+        assert_eq!(isize::MIN.checked_div(-1), None);
     }
 
     #[test]

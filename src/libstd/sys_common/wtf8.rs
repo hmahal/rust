@@ -1,13 +1,3 @@
-// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Implementation of [the WTF-8 encoding](https://simonsapin.github.io/wtf-8/).
 //!
 //! This library uses Rust’s type system to maintain
@@ -27,24 +17,24 @@
 
 use core::str::next_code_point;
 
-use borrow::Cow;
-use char;
-use fmt;
-use hash::{Hash, Hasher};
-use iter::FromIterator;
-use mem;
-use ops;
-use rc::Rc;
-use slice;
-use str;
-use sync::Arc;
-use sys_common::AsInner;
+use crate::borrow::Cow;
+use crate::char;
+use crate::fmt;
+use crate::hash::{Hash, Hasher};
+use crate::iter::FromIterator;
+use crate::mem;
+use crate::ops;
+use crate::rc::Rc;
+use crate::slice;
+use crate::str;
+use crate::sync::Arc;
+use crate::sys_common::AsInner;
 
 const UTF8_REPLACEMENT_CHARACTER: &str = "\u{FFFD}";
 
 /// A Unicode code point: from U+0000 to U+10FFFF.
 ///
-/// Compare with the `char` type,
+/// Compares with the `char` type,
 /// which represents a Unicode scalar value:
 /// a code point that is not a surrogate (U+D800 to U+DFFF).
 #[derive(Eq, PartialEq, Ord, PartialOrd, Clone, Copy)]
@@ -56,7 +46,7 @@ pub struct CodePoint {
 /// Example: `U+1F4A9`
 impl fmt::Debug for CodePoint {
     #[inline]
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "U+{:04X}", self.value)
     }
 }
@@ -144,7 +134,7 @@ impl ops::DerefMut for Wtf8Buf {
 /// Example: `"a\u{D800}"` for a string with code points [U+0061, U+D800]
 impl fmt::Debug for Wtf8Buf {
     #[inline]
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(&**self, formatter)
     }
 }
@@ -376,7 +366,7 @@ impl Wtf8Buf {
     }
 }
 
-/// Create a new WTF-8 string from an iterator of code points.
+/// Creates a new WTF-8 string from an iterator of code points.
 ///
 /// This replaces surrogate code point pairs with supplementary code points,
 /// like concatenating ill-formed UTF-16 strings effectively would.
@@ -398,9 +388,7 @@ impl Extend<CodePoint> for Wtf8Buf {
         let (low, _high) = iterator.size_hint();
         // Lower bound of one byte per code point (ASCII only)
         self.bytes.reserve(low);
-        for code_point in iterator {
-            self.push(code_point);
-        }
+        iterator.for_each(move |code_point| self.push(code_point));
     }
 }
 
@@ -421,9 +409,9 @@ impl AsInner<[u8]> for Wtf8 {
 /// and surrogates as `\u` followed by four hexadecimal digits.
 /// Example: `"a\u{D800}"` for a slice with code points [U+0061, U+D800]
 impl fmt::Debug for Wtf8 {
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        fn write_str_escaped(f: &mut fmt::Formatter, s: &str) -> fmt::Result {
-            use fmt::Write;
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fn write_str_escaped(f: &mut fmt::Formatter<'_>, s: &str) -> fmt::Result {
+            use crate::fmt::Write;
             for c in s.chars().flat_map(|c| c.escape_debug()) {
                 f.write_char(c)?
             }
@@ -451,7 +439,7 @@ impl fmt::Debug for Wtf8 {
 }
 
 impl fmt::Display for Wtf8 {
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let wtf8_bytes = &self.bytes;
         let mut pos = 0;
         loop {
@@ -532,7 +520,7 @@ impl Wtf8 {
 
     /// Returns an iterator for the string’s code points.
     #[inline]
-    pub fn code_points(&self) -> Wtf8CodePoints {
+    pub fn code_points(&self) -> Wtf8CodePoints<'_> {
         Wtf8CodePoints { bytes: self.bytes.iter() }
     }
 
@@ -557,7 +545,7 @@ impl Wtf8 {
     /// Surrogates are replaced with `"\u{FFFD}"` (the replacement character “�”).
     ///
     /// This only copies the data if necessary (if it contains any surrogate).
-    pub fn to_string_lossy(&self) -> Cow<str> {
+    pub fn to_string_lossy(&self) -> Cow<'_, str> {
         let surrogate_pos = match self.next_surrogate(0) {
             None => return Cow::Borrowed(unsafe { str::from_utf8_unchecked(&self.bytes) }),
             Some((pos, _)) => pos,
@@ -589,7 +577,7 @@ impl Wtf8 {
     /// calling `Wtf8Buf::from_ill_formed_utf16` on the resulting code units
     /// would always return the original WTF-8 string.
     #[inline]
-    pub fn encode_wide(&self) -> EncodeWide {
+    pub fn encode_wide(&self) -> EncodeWide<'_> {
         EncodeWide { code_points: self.code_points(), extra: 0 }
     }
 
@@ -674,7 +662,7 @@ impl Wtf8 {
 }
 
 
-/// Return a slice of the given string for the byte range [`begin`..`end`).
+/// Returns a slice of the given string for the byte range [`begin`..`end`).
 ///
 /// # Panics
 ///
@@ -696,7 +684,7 @@ impl ops::Index<ops::Range<usize>> for Wtf8 {
     }
 }
 
-/// Return a slice of the given string from byte `begin` to its end.
+/// Returns a slice of the given string from byte `begin` to its end.
 ///
 /// # Panics
 ///
@@ -716,7 +704,7 @@ impl ops::Index<ops::RangeFrom<usize>> for Wtf8 {
     }
 }
 
-/// Return a slice of the given string from its beginning to byte `end`.
+/// Returns a slice of the given string from its beginning to byte `end`.
 ///
 /// # Panics
 ///
@@ -881,7 +869,7 @@ impl Wtf8 {
 
 #[cfg(test)]
 mod tests {
-    use borrow::Cow;
+    use crate::borrow::Cow;
     use super::*;
 
     #[test]
@@ -1238,7 +1226,7 @@ mod tests {
         assert_eq!(Wtf8::from_str("aé 💩").to_string_lossy(), Cow::Borrowed("aé 💩"));
         let mut string = Wtf8Buf::from_str("aé 💩");
         string.push(CodePoint::from_u32(0xD800).unwrap());
-        let expected: Cow<str> = Cow::Owned(String::from("aé 💩�"));
+        let expected: Cow<'_, str> = Cow::Owned(String::from("aé 💩�"));
         assert_eq!(string.to_string_lossy(), expected);
     }
 

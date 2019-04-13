@@ -1,17 +1,7 @@
-// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 use std::cmp;
-use symbol::Symbol;
+use crate::symbol::Symbol;
 
-/// Find the Levenshtein distance between two strings
+/// Finds the Levenshtein distance between two strings
 pub fn lev_distance(a: &str, b: &str) -> usize {
     // cases which don't require further computation
     if a.is_empty() {
@@ -42,7 +32,7 @@ pub fn lev_distance(a: &str, b: &str) -> usize {
     dcol[t_last + 1]
 }
 
-/// Find the best match for a given word in the given iterator
+/// Finds the best match for a given word in the given iterator
 ///
 /// As a loose rule to avoid the obviously incorrect suggestions, it takes
 /// an optional limit for the maximum allowable edit distance, which defaults
@@ -111,7 +101,7 @@ fn test_lev_distance() {
 
 #[test]
 fn test_find_best_match_for_name() {
-    use with_globals;
+    use crate::with_globals;
     with_globals(|| {
         let input = vec![Symbol::intern("aaab"), Symbol::intern("aaabc")];
         assert_eq!(

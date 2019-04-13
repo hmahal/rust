@@ -1,17 +1,7 @@
-// Copyright 2016 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
+use crate::session::{self, DataTypeKind};
+use crate::ty::{self, Ty, TyCtxt, TypeFoldable, ReprOptions};
 
-use session::{self, DataTypeKind};
-use ty::{self, Ty, TyCtxt, TypeFoldable, ReprOptions};
-
-use syntax::ast::{self, IntTy, UintTy};
+use syntax::ast::{self, Ident, IntTy, UintTy};
 use syntax::attr;
 use syntax_pos::DUMMY_SP;
 
@@ -22,7 +12,7 @@ use std::iter;
 use std::mem;
 use std::ops::Bound;
 
-use ich::StableHashingContext;
+use crate::ich::StableHashingContext;
 use rustc_data_structures::indexed_vec::{IndexVec, Idx};
 use rustc_data_structures::stable_hasher::{HashStable, StableHasher,
                                            StableHasherResult};
@@ -56,7 +46,7 @@ impl IntegerExt for Integer {
         }
     }
 
-    /// Get the Integer type from an attr::IntType.
+    /// Gets the Integer type from an attr::IntType.
     fn from_attr<C: HasDataLayout>(cx: &C, ity: attr::IntType) -> Integer {
         let dl = cx.data_layout();
 
@@ -72,7 +62,7 @@ impl IntegerExt for Integer {
         }
     }
 
-    /// Find the appropriate Integer type and signedness for the given
+    /// Finds the appropriate Integer type and signedness for the given
     /// signed discriminant range and #[repr] attribute.
     /// N.B.: u128 values above i128::MAX will be treated as signed, but
     /// that shouldn't affect anything, other than maybe debuginfo.
@@ -191,7 +181,14 @@ fn layout_raw<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
 
         ty::tls::enter_context(&icx, |_| {
             let cx = LayoutCx { tcx, param_env };
-            cx.layout_raw_uncached(ty)
+            let layout = cx.layout_raw_uncached(ty);
+            // Type-level uninhabitedness should always imply ABI uninhabitedness.
+            if let Ok(layout) = layout {
+                if ty.conservative_is_privately_uninhabited(tcx) {
+                    assert!(layout.abi.is_uninhabited());
+                }
+            }
+            layout
         })
     })
 }
@@ -205,12 +202,11 @@ pub fn provide(providers: &mut ty::query::Providers<'_>) {
 
 pub struct LayoutCx<'tcx, C> {
     pub tcx: C,
-    pub param_env: ty::ParamEnv<'tcx>
+    pub param_env: ty::ParamEnv<'tcx>,
 }
 
 impl<'a, 'tcx> LayoutCx<'tcx, TyCtxt<'a, 'tcx, 'tcx>> {
-    fn layout_raw_uncached(&self, ty: Ty<'tcx>)
-                           -> Result<&'tcx LayoutDetails, LayoutError<'tcx>> {
+    fn layout_raw_uncached(&self, ty: Ty<'tcx>) -> Result<&'tcx LayoutDetails, LayoutError<'tcx>> {
         let tcx = self.tcx;
         let param_env = self.param_env;
         let dl = self.data_layout();
@@ -551,13 +547,19 @@ impl<'a, 'tcx> LayoutCx<'tcx, TyCtxt<'a, 'tcx, 'tcx>> {
                 let size = element.size.checked_mul(count, dl)
                     .ok_or(LayoutError::SizeOverflow(ty))?;
 
+                let abi = if count != 0 && ty.conservative_is_privately_uninhabited(tcx) {
+                    Abi::Uninhabited
+                } else {
+                    Abi::Aggregate { sized: true }
+                };
+
                 tcx.intern_layout(LayoutDetails {
                     variants: Variants::Single { index: VariantIdx::new(0) },
                     fields: FieldPlacement::Array {
                         stride: element.size,
                         count
                     },
-                    abi: Abi::Aggregate { sized: true },
+                    abi,
                     align: element.align,
                     size
                 })
@@ -911,11 +913,14 @@ impl<'a, 'tcx> LayoutCx<'tcx, TyCtxt<'a, 'tcx, 'tcx>> {
                             }
 
                             return Ok(tcx.intern_layout(LayoutDetails {
-                                variants: Variants::NicheFilling {
-                                    dataful_variant: i,
-                                    niche_variants,
-                                    niche: niche_scalar,
-                                    niche_start,
+                                variants: Variants::Multiple {
+                                    discr: niche_scalar,
+                                    discr_kind: DiscriminantKind::Niche {
+                                        dataful_variant: i,
+                                        niche_variants,
+                                        niche_start,
+                                    },
+                                    discr_index: 0,
                                     variants: st,
                                 },
                                 fields: FieldPlacement::Arbitrary {
@@ -1135,8 +1140,10 @@ impl<'a, 'tcx> LayoutCx<'tcx, TyCtxt<'a, 'tcx, 'tcx>> {
                 }
 
                 tcx.intern_layout(LayoutDetails {
-                    variants: Variants::Tagged {
-                        tag,
+                    variants: Variants::Multiple {
+                        discr: tag,
+                        discr_kind: DiscriminantKind::Tag,
+                        discr_index: 0,
                         variants: layout_variants,
                     },
                     fields: FieldPlacement::Arbitrary {
@@ -1174,14 +1181,20 @@ impl<'a, 'tcx> LayoutCx<'tcx, TyCtxt<'a, 'tcx, 'tcx>> {
 
     /// This is invoked by the `layout_raw` query to record the final
     /// layout of each type.
-    #[inline]
+    #[inline(always)]
     fn record_layout_for_printing(&self, layout: TyLayout<'tcx>) {
-        // If we are running with `-Zprint-type-sizes`, record layouts for
-        // dumping later. Ignore layouts that are done with non-empty
-        // environments or non-monomorphic layouts, as the user only wants
-        // to see the stuff resulting from the final codegen session.
+        // If we are running with `-Zprint-type-sizes`, maybe record layouts
+        // for dumping later.
+        if self.tcx.sess.opts.debugging_opts.print_type_sizes {
+            self.record_layout_for_printing_outlined(layout)
+        }
+    }
+
+    fn record_layout_for_printing_outlined(&self, layout: TyLayout<'tcx>) {
+        // Ignore layouts that are done with non-empty environments or
+        // non-monomorphic layouts, as the user only wants to see the stuff
+        // resulting from the final codegen session.
         if
-            !self.tcx.sess.opts.debugging_opts.print_type_sizes ||
             layout.ty.has_param_types() ||
             layout.ty.has_self_ty() ||
             !self.param_env.caller_bounds.is_empty()
@@ -1189,10 +1202,6 @@ impl<'a, 'tcx> LayoutCx<'tcx, TyCtxt<'a, 'tcx, 'tcx>> {
             return;
         }
 
-        self.record_layout_for_printing_outlined(layout)
-    }
-
-    fn record_layout_for_printing_outlined(&self, layout: TyLayout<'tcx>) {
         // (delay format until we actually need it)
         let record = |kind, packed, opt_discr_size, variants| {
             let type_desc = format!("{:?}", layout.ty);
@@ -1226,7 +1235,7 @@ impl<'a, 'tcx> LayoutCx<'tcx, TyCtxt<'a, 'tcx, 'tcx>> {
         let adt_kind = adt_def.adt_kind();
         let adt_packed = adt_def.repr.packed();
 
-        let build_variant_info = |n: Option<ast::Name>,
+        let build_variant_info = |n: Option<Ident>,
                                   flds: &[ast::Name],
                                   layout: TyLayout<'tcx>| {
             let mut min_size = Size::ZERO;
@@ -1271,7 +1280,7 @@ impl<'a, 'tcx> LayoutCx<'tcx, TyCtxt<'a, 'tcx, 'tcx>> {
         match layout.variants {
             Variants::Single { index } => {
                 debug!("print-type-size `{:#?}` variant {}",
-                       layout, adt_def.variants[index].name);
+                       layout, adt_def.variants[index].ident);
                 if !adt_def.variants.is_empty() {
                     let variant_def = &adt_def.variants[index];
                     let fields: Vec<_> =
@@ -1279,7 +1288,7 @@ impl<'a, 'tcx> LayoutCx<'tcx, TyCtxt<'a, 'tcx, 'tcx>> {
                     record(adt_kind.into(),
                            adt_packed,
                            None,
-                           vec![build_variant_info(Some(variant_def.name),
+                           vec![build_variant_info(Some(variant_def.ident),
                                                    &fields,
                                                    layout)]);
                 } else {
@@ -1289,21 +1298,20 @@ impl<'a, 'tcx> LayoutCx<'tcx, TyCtxt<'a, 'tcx, 'tcx>> {
                 }
             }
 
-            Variants::NicheFilling { .. } |
-            Variants::Tagged { .. } => {
+            Variants::Multiple { ref discr, ref discr_kind, .. } => {
                 debug!("print-type-size `{:#?}` adt general variants def {}",
                        layout.ty, adt_def.variants.len());
                 let variant_infos: Vec<_> =
                     adt_def.variants.iter_enumerated().map(|(i, variant_def)| {
                         let fields: Vec<_> =
                             variant_def.fields.iter().map(|f| f.ident.name).collect();
-                        build_variant_info(Some(variant_def.name),
+                        build_variant_info(Some(variant_def.ident),
                                            &fields,
                                            layout.for_variant(self, i))
                     })
                     .collect();
-                record(adt_kind.into(), adt_packed, match layout.variants {
-                    Variants::Tagged { ref tag, .. } => Some(tag.value.size(self)),
+                record(adt_kind.into(), adt_packed, match discr_kind {
+                    DiscriminantKind::Tag => Some(discr.value.size(self)),
                     _ => None
                 }, variant_infos);
             }
@@ -1623,8 +1631,7 @@ impl<'a, 'tcx, C> TyLayoutMethods<'tcx, C> for Ty<'tcx>
                 })
             }
 
-            Variants::NicheFilling { ref variants, .. } |
-            Variants::Tagged { ref variants, .. } => {
+            Variants::Multiple { ref variants, .. } => {
                 &variants[variant_index]
             }
         };
@@ -1684,7 +1691,7 @@ impl<'a, 'tcx, C> TyLayoutMethods<'tcx, C> for Ty<'tcx>
                             tcx.types.re_static,
                             tcx.mk_array(tcx.types.usize, 3),
                         )
-                        /* FIXME use actual fn pointers
+                        /* FIXME: use actual fn pointers
                         Warning: naively computing the number of entries in the
                         vtable by counting the methods on the trait + methods on
                         all parent traits does not work, because some methods can
@@ -1731,8 +1738,7 @@ impl<'a, 'tcx, C> TyLayoutMethods<'tcx, C> for Ty<'tcx>
                     }
 
                     // Discriminant field for enums (where applicable).
-                    Variants::Tagged { tag: ref discr, .. } |
-                    Variants::NicheFilling { niche: ref discr, .. } => {
+                    Variants::Multiple { ref discr, .. } => {
                         assert_eq!(i, 0);
                         let layout = LayoutDetails::scalar(cx, discr.clone());
                         return MaybeResult::from_ok(TyLayout {
@@ -1840,7 +1846,11 @@ impl<'a, 'tcx> LayoutCx<'tcx, TyCtxt<'a, 'tcx, 'tcx>> {
                 return Ok(None);
             }
         }
-        if let FieldPlacement::Array { .. } = layout.fields {
+        if let FieldPlacement::Array { count: original_64_bit_count, .. } = layout.fields {
+            // rust-lang/rust#57038: avoid ICE within FieldPlacement::count when count too big
+            if original_64_bit_count > usize::max_value() as u64 {
+                return Err(LayoutError::SizeOverflow(layout.ty));
+            }
             if layout.fields.count() > 0 {
                 return self.find_niche(layout.field(self, 0)?);
             } else {
@@ -1866,33 +1876,46 @@ impl<'a> HashStable<StableHashingContext<'a>> for Variants {
     fn hash_stable<W: StableHasherResult>(&self,
                                           hcx: &mut StableHashingContext<'a>,
                                           hasher: &mut StableHasher<W>) {
-        use ty::layout::Variants::*;
+        use crate::ty::layout::Variants::*;
         mem::discriminant(self).hash_stable(hcx, hasher);
 
         match *self {
             Single { index } => {
                 index.hash_stable(hcx, hasher);
             }
-            Tagged {
-                ref tag,
+            Multiple {
+                ref discr,
+                ref discr_kind,
+                discr_index,
                 ref variants,
             } => {
-                tag.hash_stable(hcx, hasher);
+                discr.hash_stable(hcx, hasher);
+                discr_kind.hash_stable(hcx, hasher);
+                discr_index.hash_stable(hcx, hasher);
                 variants.hash_stable(hcx, hasher);
             }
-            NicheFilling {
+        }
+    }
+}
+
+impl<'a> HashStable<StableHashingContext<'a>> for DiscriminantKind {
+    fn hash_stable<W: StableHasherResult>(&self,
+                                          hcx: &mut StableHashingContext<'a>,
+                                          hasher: &mut StableHasher<W>) {
+        use crate::ty::layout::DiscriminantKind::*;
+        mem::discriminant(self).hash_stable(hcx, hasher);
+
+        match *self {
+            Tag => {}
+            Niche {
                 dataful_variant,
                 ref niche_variants,
-                ref niche,
                 niche_start,
-                ref variants,
             } => {
                 dataful_variant.hash_stable(hcx, hasher);
                 niche_variants.start().hash_stable(hcx, hasher);
                 niche_variants.end().hash_stable(hcx, hasher);
-                niche.hash_stable(hcx, hasher);
                 niche_start.hash_stable(hcx, hasher);
-                variants.hash_stable(hcx, hasher);
             }
         }
     }
@@ -1902,7 +1925,7 @@ impl<'a> HashStable<StableHashingContext<'a>> for FieldPlacement {
     fn hash_stable<W: StableHasherResult>(&self,
                                           hcx: &mut StableHashingContext<'a>,
                                           hasher: &mut StableHasher<W>) {
-        use ty::layout::FieldPlacement::*;
+        use crate::ty::layout::FieldPlacement::*;
         mem::discriminant(self).hash_stable(hcx, hasher);
 
         match *self {
@@ -1935,7 +1958,7 @@ impl<'a> HashStable<StableHashingContext<'a>> for Abi {
     fn hash_stable<W: StableHasherResult>(&self,
                                           hcx: &mut StableHashingContext<'a>,
                                           hasher: &mut StableHasher<W>) {
-        use ty::layout::Abi::*;
+        use crate::ty::layout::Abi::*;
         mem::discriminant(self).hash_stable(hcx, hasher);
 
         match *self {
@@ -1969,7 +1992,7 @@ impl<'a> HashStable<StableHashingContext<'a>> for Scalar {
     }
 }
 
-impl_stable_hash_for!(struct ::ty::layout::LayoutDetails {
+impl_stable_hash_for!(struct crate::ty::layout::LayoutDetails {
     variants,
     fields,
     abi,
@@ -1977,7 +2000,7 @@ impl_stable_hash_for!(struct ::ty::layout::LayoutDetails {
     align
 });
 
-impl_stable_hash_for!(enum ::ty::layout::Integer {
+impl_stable_hash_for!(enum crate::ty::layout::Integer {
     I8,
     I16,
     I32,
@@ -1985,13 +2008,13 @@ impl_stable_hash_for!(enum ::ty::layout::Integer {
     I128
 });
 
-impl_stable_hash_for!(enum ::ty::layout::Primitive {
+impl_stable_hash_for!(enum crate::ty::layout::Primitive {
     Int(integer, signed),
     Float(fty),
     Pointer
 });
 
-impl_stable_hash_for!(struct ::ty::layout::AbiAndPrefAlign {
+impl_stable_hash_for!(struct crate::ty::layout::AbiAndPrefAlign {
     abi,
     pref
 });
@@ -2017,7 +2040,7 @@ impl<'a, 'gcx> HashStable<StableHashingContext<'a>> for LayoutError<'gcx>
     fn hash_stable<W: StableHasherResult>(&self,
                                           hcx: &mut StableHashingContext<'a>,
                                           hasher: &mut StableHasher<W>) {
-        use ty::layout::LayoutError::*;
+        use crate::ty::layout::LayoutError::*;
         mem::discriminant(self).hash_stable(hcx, hasher);
 
         match *self {

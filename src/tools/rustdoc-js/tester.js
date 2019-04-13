@@ -1,14 +1,5 @@
-// Copyright 2018 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 const fs = require('fs');
+const { spawnSync } = require('child_process');
 
 const TEST_FOLDER = 'src/test/rustdoc-js/';
 
@@ -26,7 +17,10 @@ function getNextStep(content, pos, stop) {
     return pos;
 }
 
-// Stupid function extractor based on indent.
+// Stupid function extractor based on indent. Doesn't support block
+// comments. If someone puts a ' or an " in a block comment this
+// will blow up. Template strings are not tested and might also be
+// broken.
 function extractFunction(content, functionName) {
     var indent = 0;
     var splitter = "function " + functionName + "(";
@@ -51,7 +45,14 @@ function extractFunction(content, functionName) {
             continue;
         }
         while (pos < content.length) {
-            if (content[pos] === '"' || content[pos] === "'") {
+            // Eat single-line comments
+            if (content[pos] === '/' && pos > 0 && content[pos-1] === '/') {
+                do {
+                    pos += 1;
+                } while (pos < content.length && content[pos] !== '\n');
+
+            // Eat quoted strings
+            } else if (content[pos] === '"' || content[pos] === "'" || content[pos] === "`") {
                 var stop = content[pos];
                 var is_escaped = false;
                 do {
@@ -62,6 +63,8 @@ function extractFunction(content, functionName) {
                     }
                 } while (pos < content.length &&
                          (content[pos] !== stop || content[pos - 1] === '\\'));
+
+            // Otherwise, check for indent
             } else if (content[pos] === '{') {
                 indent += 1;
             } else if (content[pos] === '}') {
@@ -162,9 +165,12 @@ function loadContent(content) {
     var Module = module.constructor;
     var m = new Module();
     m._compile(content, "tmp.js");
-    m.exports.ignore_order = content.indexOf("\n// ignore-order\n") !== -1;
-    m.exports.exact_check = content.indexOf("\n// exact-check\n") !== -1;
-    m.exports.should_fail = content.indexOf("\n// should-fail\n") !== -1;
+    m.exports.ignore_order = content.indexOf("\n// ignore-order\n") !== -1 ||
+        content.startsWith("// ignore-order\n");
+    m.exports.exact_check = content.indexOf("\n// exact-check\n") !== -1 ||
+        content.startsWith("// exact-check\n");
+    m.exports.should_fail = content.indexOf("\n// should-fail\n") !== -1 ||
+        content.startsWith("// should-fail\n");
     return m.exports;
 }
 
@@ -214,16 +220,10 @@ function lookForEntry(entry, data) {
     return null;
 }
 
-function main(argv) {
-    if (argv.length !== 3) {
-        console.error("Expected toolchain to check as argument (for example 'x86_64-apple-darwin'");
-        return 1;
-    }
-    var toolchain = argv[2];
-
-    var mainJs = readFile("build/" + toolchain + "/doc/main.js");
-    var ALIASES = readFile("build/" + toolchain + "/doc/aliases.js");
-    var searchIndex = readFile("build/" + toolchain + "/doc/search-index.js").split("\n");
+function load_files(out_folder, crate) {
+    var mainJs = readFile(out_folder + "/main.js");
+    var ALIASES = readFile(out_folder + "/aliases.js");
+    var searchIndex = readFile(out_folder + "/search-index.js").split("\n");
     if (searchIndex[searchIndex.length - 1].length === 0) {
         searchIndex.pop();
     }
@@ -242,7 +242,7 @@ function main(argv) {
     var functionsToLoad = ["buildHrefAndPath", "pathSplitter", "levenshtein", "validateResult",
                            "getQuery", "buildIndex", "execQuery", "execSearch"];
 
-    finalJS += 'window = { "currentCrate": "std" };\n';
+    finalJS += 'window = { "currentCrate": "' + crate + '" };\n';
     finalJS += 'var rootPath = "../";\n';
     finalJS += ALIASES;
     finalJS += loadThings(arraysToLoad, 'array', extractArrayVariable, mainJs);
@@ -250,12 +250,36 @@ function main(argv) {
     finalJS += loadThings(functionsToLoad, 'function', extractFunction, mainJs);
 
     var loaded = loadContent(finalJS);
-    var index = loaded.buildIndex(searchIndex.searchIndex);
+    return [loaded, loaded.buildIndex(searchIndex.searchIndex)];
+}
+
+function main(argv) {
+    if (argv.length < 4) {
+        console.error("USAGE: node tester.js OUT_FOLDER [TESTS]");
+        return 1;
+    }
+    if (argv[2].substr(-1) !== "/") {
+        argv[2] += "/";
+    }
+    const out_folder = argv[2];
 
     var errors = 0;
 
-    fs.readdirSync(TEST_FOLDER).forEach(function(file) {
-        var loadedFile = loadContent(readFile(TEST_FOLDER + file) +
+    for (var j = 3; j < argv.length; ++j) {
+        const test_name = argv[j];
+
+        process.stdout.write('Checking "' + test_name + '" ... ');
+        if (!fs.existsSync(TEST_FOLDER + test_name + ".js")) {
+            errors += 1;
+            console.error("FAILED");
+            console.error("==> Missing '" + test_name + ".js' file...");
+            continue;
+        }
+
+        const test_out_folder = out_folder + test_name;
+
+        var [loaded, index] = load_files(test_out_folder, test_name);
+        var loadedFile = loadContent(readFile(TEST_FOLDER + test_name + ".js") +
                                'exports.QUERY = QUERY;exports.EXPECTED = EXPECTED;');
         const expected = loadedFile.EXPECTED;
         const query = loadedFile.QUERY;
@@ -264,7 +288,6 @@ function main(argv) {
         const exact_check = loadedFile.exact_check;
         const should_fail = loadedFile.should_fail;
         var results = loaded.execSearch(loaded.getQuery(query), index);
-        process.stdout.write('Checking "' + file + '" ... ');
         var error_text = [];
         for (var key in expected) {
             if (!expected.hasOwnProperty(key)) {
@@ -304,7 +327,7 @@ function main(argv) {
         } else {
             console.log("OK");
         }
-    });
+    }
     return errors;
 }
 

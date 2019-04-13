@@ -1,13 +1,3 @@
-// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 use rustc::ty::{self, Ty};
 use rustc::ty::cast::{CastTy, IntTy};
 use rustc::ty::layout::{self, LayoutOf, HasTyCtxt};
@@ -16,13 +6,13 @@ use rustc::middle::lang_items::ExchangeMallocFnLangItem;
 use rustc_apfloat::{ieee, Float, Status, Round};
 use std::{u128, i128};
 
-use base;
-use MemFlags;
-use callee;
-use common::{self, RealPredicate, IntPredicate};
+use crate::base;
+use crate::MemFlags;
+use crate::callee;
+use crate::common::{self, RealPredicate, IntPredicate};
 use rustc_mir::monomorphize;
 
-use traits::*;
+use crate::traits::*;
 
 use super::{FunctionCx, LocalRef};
 use super::operand::{OperandRef, OperandValue};
@@ -97,11 +87,11 @@ impl<'a, 'tcx: 'a, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
                 if dest.layout.is_zst() {
                     return bx;
                 }
-                let zero = bx.cx().const_usize(0);
-                let start = dest.project_index(&mut bx, zero).llval;
 
                 if let OperandValue::Immediate(v) = cg_elem.val {
-                    let size = bx.cx().const_usize(dest.layout.size.bytes());
+                    let zero = bx.const_usize(0);
+                    let start = dest.project_index(&mut bx, zero).llval;
+                    let size = bx.const_usize(dest.layout.size.bytes());
 
                     // Use llvm.memset.p0i8.* to initialize all zero arrays
                     if bx.cx().is_const_integral(v) && bx.cx().const_to_uint(v) == 0 {
@@ -118,27 +108,7 @@ impl<'a, 'tcx: 'a, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
                     }
                 }
 
-                let count = bx.cx().const_usize(count);
-                let end = dest.project_index(&mut bx, count).llval;
-
-                let mut header_bx = bx.build_sibling_block("repeat_loop_header");
-                let mut body_bx = bx.build_sibling_block("repeat_loop_body");
-                let next_bx = bx.build_sibling_block("repeat_loop_next");
-
-                bx.br(header_bx.llbb());
-                let current = header_bx.phi(bx.cx().val_ty(start), &[start], &[bx.llbb()]);
-
-                let keep_going = header_bx.icmp(IntPredicate::IntNE, current, end);
-                header_bx.cond_br(keep_going, body_bx.llbb(), next_bx.llbb());
-
-                cg_elem.val.store(&mut body_bx,
-                    PlaceRef::new_sized(current, cg_elem.layout, dest.align));
-
-                let next = body_bx.inbounds_gep(current, &[bx.cx().const_usize(1)]);
-                body_bx.br(header_bx.llbb());
-                header_bx.add_incoming_to_phi(current, next, body_bx.llbb());
-
-                next_bx
+                bx.write_operand_repeatedly(cg_elem, count, dest)
             }
 
             mir::Rvalue::Aggregate(ref kind, ref operands) => {
@@ -223,7 +193,7 @@ impl<'a, 'tcx: 'a, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
                             }
                         }
                     }
-                    mir::CastKind::ClosureFnPointer => {
+                    mir::CastKind::ClosureFnPointer(_) => {
                         match operand.layout.ty.sty {
                             ty::Closure(def_id, substs) => {
                                 let instance = monomorphize::resolve_closure(
@@ -266,7 +236,8 @@ impl<'a, 'tcx: 'a, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
                             }
                         }
                     }
-                    mir::CastKind::Misc if bx.cx().is_backend_scalar_pair(operand.layout) => {
+                    mir::CastKind::MutToConstPointer
+                    | mir::CastKind::Misc if bx.cx().is_backend_scalar_pair(operand.layout) => {
                         if let OperandValue::Pair(data_ptr, meta) = operand.val {
                             if bx.cx().is_backend_scalar_pair(cast) {
                                 let data_cast = bx.pointercast(data_ptr,
@@ -283,7 +254,8 @@ impl<'a, 'tcx: 'a, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
                             bug!("Unexpected non-Pair operand")
                         }
                     }
-                    mir::CastKind::Misc => {
+                    mir::CastKind::MutToConstPointer
+                    | mir::CastKind::Misc => {
                         assert!(bx.cx().is_backend_immediate(cast));
                         let ll_t_out = bx.cx().immediate_backend_type(cast);
                         if operand.layout.abi.is_uninhabited() {
@@ -310,8 +282,7 @@ impl<'a, 'tcx: 'a, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
                                     });
                                 }
                             }
-                            layout::Variants::Tagged { .. } |
-                            layout::Variants::NicheFilling { .. } => {},
+                            layout::Variants::Multiple { .. } => {},
                         }
                         let llval = operand.immediate();
 
@@ -530,8 +501,11 @@ impl<'a, 'tcx: 'a, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
                 // According to `rvalue_creates_operand`, only ZST
                 // aggregate rvalues are allowed to be operands.
                 let ty = rvalue.ty(self.mir, self.cx.tcx());
-                (bx, OperandRef::new_zst(self.cx,
-                    self.cx.layout_of(self.monomorphize(&ty))))
+                let operand = OperandRef::new_zst(
+                    &mut bx,
+                    self.cx.layout_of(self.monomorphize(&ty)),
+                );
+                (bx, operand)
             }
         }
     }
@@ -543,7 +517,7 @@ impl<'a, 'tcx: 'a, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
     ) -> Bx::Value {
         // ZST are passed as operands and require special handling
         // because codegen_place() panics if Local is operand.
-        if let mir::Place::Local(index) = *place {
+        if let mir::Place::Base(mir::PlaceBase::Local(index)) = *place {
             if let LocalRef::Operand(Some(op)) = self.locals[index] {
                 if let ty::Array(_, n) = op.layout.ty.sty {
                     let n = n.unwrap_usize(bx.cx().tcx());
@@ -757,7 +731,6 @@ fn cast_int_to_float<'a, 'tcx: 'a, Bx: BuilderMethods<'a, 'tcx>>(
         // All inputs greater or equal to (f32::MAX + 0.5 ULP) are rounded to infinity,
         // and for everything else LLVM's uitofp works just fine.
         use rustc_apfloat::ieee::Single;
-        use rustc_apfloat::Float;
         const MAX_F32_PLUS_HALF_ULP: u128 = ((1 << (Single::PRECISION + 1)) - 1)
                                             << (Single::MAX_EXP - Single::PRECISION as i16);
         let max = bx.cx().const_uint_big(int_ty, MAX_F32_PLUS_HALF_ULP);

@@ -1,15 +1,5 @@
-// Copyright 2018 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 use super::BackendTypes;
-use debuginfo::{FunctionDebugContext, MirDebugScope, VariableAccess, VariableKind};
+use crate::debuginfo::{FunctionDebugContext, MirDebugScope, VariableAccess, VariableKind};
 use rustc::hir::def_id::CrateNum;
 use rustc::mir;
 use rustc::ty::{self, Ty};
@@ -32,13 +22,13 @@ pub trait DebugInfoMethods<'tcx>: BackendTypes {
         instance: Instance<'tcx>,
         sig: ty::FnSig<'tcx>,
         llfn: Self::Value,
-        mir: &mir::Mir,
+        mir: &mir::Mir<'_>,
     ) -> FunctionDebugContext<Self::DIScope>;
 
     fn create_mir_scopes(
         &self,
-        mir: &mir::Mir,
-        debug_context: &FunctionDebugContext<Self::DIScope>,
+        mir: &mir::Mir<'_>,
+        debug_context: &mut FunctionDebugContext<Self::DIScope>,
     ) -> IndexVec<mir::SourceScope, MirDebugScope<Self::DIScope>>;
     fn extend_scope_to_file(
         &self,
@@ -63,9 +53,10 @@ pub trait DebugInfoBuilderMethods<'tcx>: BackendTypes {
     );
     fn set_source_location(
         &mut self,
-        debug_context: &FunctionDebugContext<Self::DIScope>,
+        debug_context: &mut FunctionDebugContext<Self::DIScope>,
         scope: Option<Self::DIScope>,
         span: Span,
     );
     fn insert_reference_to_gdb_debug_scripts_section_global(&mut self);
+    fn set_value_name(&mut self, value: Self::Value, name: &str);
 }

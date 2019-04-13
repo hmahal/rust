@@ -1,13 +1,3 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Native threads.
 //!
 //! ## The threading model
@@ -166,25 +156,26 @@
 
 #![stable(feature = "rust1", since = "1.0.0")]
 
-use any::Any;
-use boxed::FnBox;
-use cell::UnsafeCell;
-use ffi::{CStr, CString};
-use fmt;
-use io;
-use mem;
-use panic;
-use panicking;
-use str;
-use sync::{Mutex, Condvar, Arc};
-use sync::atomic::AtomicUsize;
-use sync::atomic::Ordering::SeqCst;
-use sys::thread as imp;
-use sys_common::mutex;
-use sys_common::thread_info;
-use sys_common::thread;
-use sys_common::{AsInner, IntoInner};
-use time::Duration;
+use crate::any::Any;
+use crate::boxed::FnBox;
+use crate::cell::UnsafeCell;
+use crate::ffi::{CStr, CString};
+use crate::fmt;
+use crate::io;
+use crate::mem;
+use crate::num::NonZeroU64;
+use crate::panic;
+use crate::panicking;
+use crate::str;
+use crate::sync::{Mutex, Condvar, Arc};
+use crate::sync::atomic::AtomicUsize;
+use crate::sync::atomic::Ordering::SeqCst;
+use crate::sys::thread as imp;
+use crate::sys_common::mutex;
+use crate::sys_common::thread_info;
+use crate::sys_common::thread;
+use crate::sys_common::{AsInner, IntoInner};
+use crate::time::Duration;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Thread-local storage
@@ -476,7 +467,7 @@ impl Builder {
             thread_info::set(imp::guard::current(), their_thread);
             #[cfg(feature = "backtrace")]
             let try_result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
-                ::sys_common::backtrace::__rust_begin_short_backtrace(f)
+                crate::sys_common::backtrace::__rust_begin_short_backtrace(f)
             }));
             #[cfg(not(feature = "backtrace"))]
             let try_result = panic::catch_unwind(panic::AssertUnwindSafe(f));
@@ -617,7 +608,7 @@ impl Builder {
 pub fn spawn<F, T>(f: F) -> JoinHandle<T> where
     F: FnOnce() -> T, F: Send + 'static, T: Send + 'static
 {
-    Builder::new().spawn(f).unwrap()
+    Builder::new().spawn(f).expect("failed to spawn thread")
 }
 
 /// Gets a handle to the thread that invokes it.
@@ -822,9 +813,14 @@ const NOTIFIED: usize = 2;
 /// In other words, each [`Thread`] acts a bit like a spinlock that can be
 /// locked and unlocked using `park` and `unpark`.
 ///
+/// Notice that being unblocked does not imply any synchronization with someone
+/// that unparked this thread, it could also be spurious.
+/// For example, it would be a valid, but inefficient, implementation to make both [`park`] and
+/// [`unpark`] return immediately without doing anything.
+///
 /// The API is typically used by acquiring a handle to the current thread,
 /// placing that handle in a shared data structure so that other threads can
-/// find it, and then `park`ing. When some desired condition is met, another
+/// find it, and then `park`ing in a loop. When some desired condition is met, another
 /// thread calls [`unpark`] on the handle.
 ///
 /// The motivation for this design is twofold:
@@ -839,21 +835,33 @@ const NOTIFIED: usize = 2;
 ///
 /// ```
 /// use std::thread;
+/// use std::sync::{Arc, atomic::{Ordering, AtomicBool}};
 /// use std::time::Duration;
 ///
-/// let parked_thread = thread::Builder::new()
-///     .spawn(|| {
+/// let flag = Arc::new(AtomicBool::new(false));
+/// let flag2 = Arc::clone(&flag);
+///
+/// let parked_thread = thread::spawn(move || {
+///     // We want to wait until the flag is set. We *could* just spin, but using
+///     // park/unpark is more efficient.
+///     while !flag2.load(Ordering::Acquire) {
 ///         println!("Parking thread");
 ///         thread::park();
+///         // We *could* get here spuriously, i.e., way before the 10ms below are over!
+///         // But that is no problem, we are in a loop until the flag is set anyway.
 ///         println!("Thread unparked");
-///     })
-///     .unwrap();
+///     }
+///     println!("Flag received");
+/// });
 ///
 /// // Let some time pass for the thread to be spawned.
 /// thread::sleep(Duration::from_millis(10));
 ///
+/// // Set the flag, and let the thread wake up.
 /// // There is no race condition here, if `unpark`
 /// // happens first, `park` will return immediately.
+/// // Hence there is no risk of a deadlock.
+/// flag.store(true, Ordering::Release);
 /// println!("Unpark the thread");
 /// parked_thread.thread().unpark();
 ///
@@ -1029,7 +1037,7 @@ pub fn park_timeout(dur: Duration) {
 /// [`Thread`]: ../../std/thread/struct.Thread.html
 #[stable(feature = "thread_id", since = "1.19.0")]
 #[derive(Eq, PartialEq, Clone, Copy, Hash, Debug)]
-pub struct ThreadId(u64);
+pub struct ThreadId(NonZeroU64);
 
 impl ThreadId {
     // Generate a new unique thread ID.
@@ -1037,21 +1045,21 @@ impl ThreadId {
         // We never call `GUARD.init()`, so it is UB to attempt to
         // acquire this mutex reentrantly!
         static GUARD: mutex::Mutex = mutex::Mutex::new();
-        static mut COUNTER: u64 = 0;
+        static mut COUNTER: u64 = 1;
 
         unsafe {
             let _guard = GUARD.lock();
 
             // If we somehow use up all our bits, panic so that we're not
             // covering up subtle bugs of IDs being reused.
-            if COUNTER == ::u64::MAX {
+            if COUNTER == crate::u64::MAX {
                 panic!("failed to generate unique thread ID: bitspace exhausted");
             }
 
             let id = COUNTER;
             COUNTER += 1;
 
-            ThreadId(id)
+            ThreadId(NonZeroU64::new(id).unwrap())
         }
     }
 }
@@ -1248,8 +1256,11 @@ impl Thread {
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl fmt::Debug for Thread {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Debug::fmt(&self.name(), f)
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Thread")
+            .field("id", &self.id())
+            .field("name", &self.name())
+            .finish()
     }
 }
 
@@ -1283,7 +1294,7 @@ impl fmt::Debug for Thread {
 ///
 /// [`Result`]: ../../std/result/enum.Result.html
 #[stable(feature = "rust1", since = "1.0.0")]
-pub type Result<T> = ::result::Result<T, Box<dyn Any + Send + 'static>>;
+pub type Result<T> = crate::result::Result<T, Box<dyn Any + Send + 'static>>;
 
 // This packet is used to communicate the return value between the child thread
 // and the parent thread. Memory is shared through the `Arc` within and there's
@@ -1458,7 +1469,7 @@ impl<T> IntoInner<imp::Thread> for JoinHandle<T> {
 
 #[stable(feature = "std_debug", since = "1.16.0")]
 impl<T> fmt::Debug for JoinHandle<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.pad("JoinHandle { .. }")
     }
 }
@@ -1475,13 +1486,14 @@ fn _assert_sync_and_send() {
 
 #[cfg(all(test, not(target_os = "emscripten")))]
 mod tests {
-    use any::Any;
-    use sync::mpsc::{channel, Sender};
-    use result;
-    use super::{Builder};
-    use thread;
-    use time::Duration;
-    use u32;
+    use super::Builder;
+    use crate::any::Any;
+    use crate::mem;
+    use crate::sync::mpsc::{channel, Sender};
+    use crate::result;
+    use crate::thread::{self, ThreadId};
+    use crate::time::Duration;
+    use crate::u32;
 
     // !!! These tests are dangerous. If something is buggy, they will hang, !!!
     // !!! instead of exiting cleanly. This might wedge the buildbots.       !!!
@@ -1490,7 +1502,7 @@ mod tests {
     fn test_unnamed_thread() {
         thread::spawn(move|| {
             assert!(thread::current().name().is_none());
-        }).join().ok().unwrap();
+        }).join().ok().expect("thread panicked");
     }
 
     #[test]
@@ -1684,6 +1696,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(target_env = "sgx", ignore)] // FIXME: https://github.com/fortanix/rust-sgx/issues/31
     fn test_park_timeout_unpark_not_called() {
         for _ in 0..10 {
             thread::park_timeout(Duration::from_millis(10));
@@ -1691,6 +1704,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(target_env = "sgx", ignore)] // FIXME: https://github.com/fortanix/rust-sgx/issues/31
     fn test_park_timeout_unpark_called_other_thread() {
         for _ in 0..10 {
             let th = thread::current();
@@ -1705,8 +1719,14 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(target_env = "sgx", ignore)] // FIXME: https://github.com/fortanix/rust-sgx/issues/31
     fn sleep_ms_smoke() {
         thread::sleep(Duration::from_millis(2));
+    }
+
+    #[test]
+    fn test_size_of_option_thread_id() {
+        assert_eq!(mem::size_of::<Option<ThreadId>>(), mem::size_of::<ThreadId>());
     }
 
     #[test]

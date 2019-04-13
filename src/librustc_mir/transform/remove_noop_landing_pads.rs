@@ -1,20 +1,10 @@
-// Copyright 2017 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 use rustc::ty::TyCtxt;
 use rustc::mir::*;
 use rustc_data_structures::bit_set::BitSet;
-use transform::{MirPass, MirSource};
-use util::patch::MirPatch;
+use crate::transform::{MirPass, MirSource};
+use crate::util::patch::MirPatch;
 
-/// A pass that removes no-op landing pads and replaces jumps to them with
+/// A pass that removes noop landing pads and replaces jumps to them with
 /// `None`. This is important because otherwise LLVM generates terrible
 /// code for these.
 pub struct RemoveNoopLandingPads;
@@ -34,7 +24,7 @@ pub fn remove_noop_landing_pads<'a, 'tcx>(
 impl MirPass for RemoveNoopLandingPads {
     fn run_pass<'a, 'tcx>(&self,
                           tcx: TyCtxt<'a, 'tcx, 'tcx>,
-                          _src: MirSource,
+                          _src: MirSource<'tcx>,
                           mir: &mut Mir<'tcx>) {
         remove_noop_landing_pads(tcx, mir);
     }
@@ -44,7 +34,7 @@ impl RemoveNoopLandingPads {
     fn is_nop_landing_pad(
         &self,
         bb: BasicBlock,
-        mir: &Mir,
+        mir: &Mir<'_>,
         nop_landing_pads: &BitSet<BasicBlock>,
     ) -> bool {
         for stmt in &mir[bb].statements {
@@ -57,7 +47,7 @@ impl RemoveNoopLandingPads {
                     // These are all nops in a landing pad
                 }
 
-                StatementKind::Assign(Place::Local(_), box Rvalue::Use(_)) => {
+                StatementKind::Assign(Place::Base(PlaceBase::Local(_)), box Rvalue::Use(_)) => {
                     // Writing to a local (e.g., a drop flag) does not
                     // turn a landing pad to a non-nop
                 }
@@ -65,8 +55,7 @@ impl RemoveNoopLandingPads {
                 StatementKind::Assign { .. } |
                 StatementKind::SetDiscriminant { .. } |
                 StatementKind::InlineAsm { .. } |
-                StatementKind::Retag { .. } |
-                StatementKind::EscapeToRaw { .. } => {
+                StatementKind::Retag { .. } => {
                     return false;
                 }
             }
@@ -97,7 +86,7 @@ impl RemoveNoopLandingPads {
         }
     }
 
-    fn remove_nop_landing_pads(&self, mir: &mut Mir) {
+    fn remove_nop_landing_pads(&self, mir: &mut Mir<'_>) {
         // make sure there's a single resume block
         let resume_block = {
             let patch = MirPatch::new(mir);

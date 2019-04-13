@@ -1,9 +1,9 @@
 error[E0382]: use of moved value: `x`
-  --> $DIR/issue-24357.rs:16:8
+  --> $DIR/issue-24357.rs:6:8
    |
 LL |    let f = move || { let y = x; };
    |            ------- value moved (into closure) here
-LL |    //~^ NOTE value moved (into closure) here
+LL |
 LL |    let z = x;
    |        ^ value used here after move
    |

@@ -1,13 +1,3 @@
-// Copyright 2016 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Script to check the validity of `href` links in our HTML documentation.
 //!
 //! In the past we've been quite error prone to writing in broken links as most
@@ -24,6 +14,8 @@
 //! A few whitelisted exceptions are allowed as there's known bugs in rustdoc,
 //! but this should catch the majority of "broken link" cases.
 
+#![deny(rust_2018_idioms)]
+
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::env;
@@ -31,7 +23,7 @@ use std::fs;
 use std::path::{Path, PathBuf, Component};
 use std::rc::Rc;
 
-use Redirect::*;
+use crate::Redirect::*;
 
 macro_rules! t {
     ($e:expr) => (match $e {
@@ -88,7 +80,7 @@ impl FileEntry {
     fn parse_ids(&mut self, file: &Path, contents: &str, errors: &mut bool) {
         if self.ids.is_empty() {
             with_attrs_in_source(contents, " id", |fragment, i, _| {
-                let frag = fragment.trim_left_matches("#").to_owned();
+                let frag = fragment.trim_start_matches("#").to_owned();
                 let encoded = small_url_encode(&frag);
                 if !self.ids.insert(frag) {
                     *errors = true;
@@ -137,13 +129,14 @@ fn check(cache: &mut Cache,
        file.ends_with("symbol/struct.InternedString.html") ||
        file.ends_with("ast/struct.ThinVec.html") ||
        file.ends_with("util/struct.ThinVec.html") ||
-       file.ends_with("util/struct.RcSlice.html") ||
        file.ends_with("layout/struct.TyLayout.html") ||
        file.ends_with("humantime/struct.Timestamp.html") ||
        file.ends_with("log/index.html") ||
        file.ends_with("ty/struct.Slice.html") ||
        file.ends_with("ty/enum.Attributes.html") ||
-       file.ends_with("ty/struct.SymbolName.html") {
+       file.ends_with("ty/struct.SymbolName.html") ||
+       file.ends_with("io/struct.IoVec.html") ||
+       file.ends_with("io/struct.IoVecMut.html") {
         return None;
     }
     // FIXME(#32553)
@@ -354,7 +347,7 @@ fn with_attrs_in_source<F: FnMut(&str, usize, &str)>(contents: &str, attr: &str,
                 Some(i) => i,
                 None => continue,
             };
-            if rest[..pos_equals].trim_left_matches(" ") != "" {
+            if rest[..pos_equals].trim_start_matches(" ") != "" {
                 continue;
             }
 
@@ -366,7 +359,7 @@ fn with_attrs_in_source<F: FnMut(&str, usize, &str)>(contents: &str, attr: &str,
             };
             let quote_delim = rest.as_bytes()[pos_quote] as char;
 
-            if rest[..pos_quote].trim_left_matches(" ") != "" {
+            if rest[..pos_quote].trim_start_matches(" ") != "" {
                 continue;
             }
             let rest = &rest[pos_quote + 1..];

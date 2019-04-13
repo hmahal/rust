@@ -1,9 +1,9 @@
 error[E0594]: cannot assign to field `self.how_hungry` of immutable binding
-  --> $DIR/mutable-class-fields-2.rs:19:5
+  --> $DIR/mutable-class-fields-2.rs:9:5
    |
 LL |   pub fn eat(&self) {
    |              ----- use `&mut self` here to make mutable
-LL |     self.how_hungry -= 5; //~ ERROR cannot assign
+LL |     self.how_hungry -= 5;
    |     ^^^^^^^^^^^^^^^^^^^^ cannot mutably borrow field of immutable binding
 
 error: aborting due to previous error

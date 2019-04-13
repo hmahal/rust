@@ -1,13 +1,3 @@
-// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Various utility functions used throughout rustbuild.
 //!
 //! Simple things like testing the various filesystem operations here and there,
@@ -21,8 +11,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, Instant};
 
-use config::Config;
-use builder::Builder;
+use crate::config::Config;
+use crate::builder::Builder;
 
 /// Returns the `name` as the filename of a static library for `target`.
 pub fn staticlib(name: &str, target: &str) -> String {
@@ -43,7 +33,7 @@ pub fn exe(name: &str, target: &str) -> String {
     }
 }
 
-/// Returns whether the file name given looks like a dynamic library.
+/// Returns `true` if the file name given looks like a dynamic library.
 pub fn is_dylib(name: &str) -> bool {
     name.ends_with(".dylib") || name.ends_with(".so") || name.ends_with(".dll")
 }
@@ -80,7 +70,11 @@ pub fn dylib_path_var() -> &'static str {
 /// Parses the `dylib_path_var()` environment variable, returning a list of
 /// paths that are members of this lookup path.
 pub fn dylib_path() -> Vec<PathBuf> {
-    env::split_paths(&env::var_os(dylib_path_var()).unwrap_or_default()).collect()
+    let var = match env::var_os(dylib_path_var()) {
+        Some(v) => v,
+        None => return vec![],
+    };
+    env::split_paths(&var).collect()
 }
 
 /// `push` all components to `buf`. On windows, append `.exe` to the last component.
@@ -101,7 +95,7 @@ pub fn push_exe_path(mut buf: PathBuf, components: &[&str]) -> PathBuf {
 pub struct TimeIt(bool, Instant);
 
 /// Returns an RAII structure that prints out how long it took to drop.
-pub fn timeit(builder: &Builder) -> TimeIt {
+pub fn timeit(builder: &Builder<'_>) -> TimeIt {
     TimeIt(builder.config.dry_run, Instant::now())
 }
 

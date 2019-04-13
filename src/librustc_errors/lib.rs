@@ -1,50 +1,29 @@
-// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-#![doc(html_logo_url = "https://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
-      html_favicon_url = "https://doc.rust-lang.org/favicon.ico",
-      html_root_url = "https://doc.rust-lang.org/nightly/")]
+#![doc(html_root_url = "https://doc.rust-lang.org/nightly/")]
 
 #![feature(custom_attribute)]
 #![allow(unused_attributes)]
-#![feature(range_contains)]
 #![cfg_attr(unix, feature(libc))]
 #![feature(nll)]
 #![feature(optin_builtin_traits)]
+#![deny(rust_2018_idioms)]
+#![cfg_attr(not(stage0), deny(internal))]
 
-extern crate atty;
-extern crate termcolor;
-#[cfg(unix)]
-extern crate libc;
-#[macro_use]
-extern crate log;
-extern crate rustc_data_structures;
-extern crate serialize as rustc_serialize;
-extern crate syntax_pos;
-extern crate unicode_width;
+#[allow(unused_extern_crates)]
+extern crate serialize as rustc_serialize; // used by deriving
 
 pub use emitter::ColorConfig;
 
-use self::Level::*;
+use Level::*;
 
 use emitter::{Emitter, EmitterWriter};
 
-use rustc_data_structures::sync::{self, Lrc, Lock, LockCell};
+use rustc_data_structures::sync::{self, Lrc, Lock, AtomicUsize, AtomicBool, SeqCst};
 use rustc_data_structures::fx::FxHashSet;
 use rustc_data_structures::stable_hasher::StableHasher;
 
 use std::borrow::Cow;
 use std::cell::Cell;
 use std::{error, fmt};
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering::SeqCst;
 use std::panic;
 
 use termcolor::{ColorSpec, Color};
@@ -66,12 +45,51 @@ use syntax_pos::{BytePos,
                  Span,
                  NO_EXPANSION};
 
+/// Indicates the confidence in the correctness of a suggestion.
+///
+/// All suggestions are marked with an `Applicability`. Tools use the applicability of a suggestion
+/// to determine whether it should be automatically applied or if the user should be consulted
+/// before applying the suggestion.
 #[derive(Copy, Clone, Debug, PartialEq, Hash, RustcEncodable, RustcDecodable)]
 pub enum Applicability {
+    /// The suggestion is definitely what the user intended. This suggestion should be
+    /// automatically applied.
     MachineApplicable,
-    HasPlaceholders,
+
+    /// The suggestion may be what the user intended, but it is uncertain. The suggestion should
+    /// result in valid Rust code if it is applied.
     MaybeIncorrect,
-    Unspecified
+
+    /// The suggestion contains placeholders like `(...)` or `{ /* fields */ }`. The suggestion
+    /// cannot be applied automatically because it will not result in valid Rust code. The user
+    /// will need to fill in the placeholders.
+    HasPlaceholders,
+
+    /// The applicability of the suggestion is unknown.
+    Unspecified,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, RustcEncodable, RustcDecodable)]
+pub enum SuggestionStyle {
+    /// Hide the suggested code when displaying this suggestion inline.
+    HideCodeInline,
+    /// Always hide the suggested code but display the message.
+    HideCodeAlways,
+    /// Do not display this suggestion in the cli output, it is only meant for tools.
+    CompletelyHidden,
+    /// Always show the suggested code.
+    /// This will *not* show the code if the suggestion is inline *and* the suggested code is
+    /// empty.
+    ShowCode,
+}
+
+impl SuggestionStyle {
+    fn hide_inline(&self) -> bool {
+        match *self {
+            SuggestionStyle::ShowCode => false,
+            _ => true,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Hash, RustcEncodable, RustcDecodable)]
@@ -99,7 +117,8 @@ pub struct CodeSuggestion {
     /// ```
     pub substitutions: Vec<Substitution>,
     pub msg: String,
-    pub show_code_when_inline: bool,
+    /// Visual representation of this suggestion.
+    pub style: SuggestionStyle,
     /// Whether or not the suggestion is approximate
     ///
     /// Sometimes we may show suggestions with placeholders,
@@ -137,20 +156,21 @@ impl CodeSuggestion {
     /// Returns the assembled code suggestions and whether they should be shown with an underline.
     pub fn splice_lines(&self, cm: &SourceMapperDyn)
                         -> Vec<(String, Vec<SubstitutionPart>)> {
-        use syntax_pos::{CharPos, Loc, Pos};
+        use syntax_pos::{CharPos, Pos};
 
         fn push_trailing(buf: &mut String,
-                         line_opt: Option<&Cow<str>>,
+                         line_opt: Option<&Cow<'_, str>>,
                          lo: &Loc,
                          hi_opt: Option<&Loc>) {
             let (lo, hi_opt) = (lo.col.to_usize(), hi_opt.map(|hi| hi.col.to_usize()));
             if let Some(line) = line_opt {
                 if let Some(lo) = line.char_indices().map(|(i, _)| i).nth(lo) {
                     let hi_opt = hi_opt.and_then(|hi| line.char_indices().map(|(i, _)| i).nth(hi));
-                    buf.push_str(match hi_opt {
-                        Some(hi) => &line[lo..hi],
-                        None => &line[lo..],
-                    });
+                    match hi_opt {
+                        Some(hi) if hi > lo => buf.push_str(&line[lo..hi]),
+                        Some(_) => (),
+                        None => buf.push_str(&line[lo..]),
+                    }
                 }
                 if let None = hi_opt {
                     buf.push('\n');
@@ -242,7 +262,7 @@ impl FatalError {
 }
 
 impl fmt::Display for FatalError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "parser fatal error")
     }
 }
@@ -259,7 +279,7 @@ impl error::Error for FatalError {
 pub struct ExplicitBug;
 
 impl fmt::Display for ExplicitBug {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "parser internal bug")
     }
 }
@@ -281,7 +301,7 @@ pub struct Handler {
 
     err_count: AtomicUsize,
     emitter: Lock<Box<dyn Emitter + sync::Send>>,
-    continue_after_error: LockCell<bool>,
+    continue_after_error: AtomicBool,
     delayed_span_bugs: Lock<Vec<Diagnostic>>,
 
     // This set contains the `DiagnosticId` of all emitted diagnostics to avoid
@@ -310,7 +330,7 @@ pub struct HandlerFlags {
     pub can_emit_warnings: bool,
     /// If true, error-level diagnostics are upgraded to bug-level.
     /// (rustc: see `-Z treat-err-as-bug`)
-    pub treat_err_as_bug: bool,
+    pub treat_err_as_bug: Option<usize>,
     /// If true, immediately emit diagnostics that would otherwise be buffered.
     /// (rustc: see `-Z dont-buffer-diagnostics` and `-Z treat-err-as-bug`)
     pub dont_buffer_diagnostics: bool,
@@ -340,7 +360,7 @@ impl Drop for Handler {
 impl Handler {
     pub fn with_tty_emitter(color_config: ColorConfig,
                             can_emit_warnings: bool,
-                            treat_err_as_bug: bool,
+                            treat_err_as_bug: Option<usize>,
                             cm: Option<Lrc<SourceMapperDyn>>)
                             -> Handler {
         Handler::with_tty_emitter_and_flags(
@@ -362,7 +382,7 @@ impl Handler {
     }
 
     pub fn with_emitter(can_emit_warnings: bool,
-                        treat_err_as_bug: bool,
+                        treat_err_as_bug: Option<usize>,
                         e: Box<dyn Emitter + sync::Send>)
                         -> Handler {
         Handler::with_emitter_and_flags(
@@ -380,7 +400,7 @@ impl Handler {
             flags,
             err_count: AtomicUsize::new(0),
             emitter: Lock::new(e),
-            continue_after_error: LockCell::new(true),
+            continue_after_error: AtomicBool::new(true),
             delayed_span_bugs: Lock::new(Vec::new()),
             taught_diagnostics: Default::default(),
             emitted_diagnostic_codes: Default::default(),
@@ -389,12 +409,12 @@ impl Handler {
     }
 
     pub fn set_continue_after_error(&self, continue_after_error: bool) {
-        self.continue_after_error.set(continue_after_error);
+        self.continue_after_error.store(continue_after_error, SeqCst);
     }
 
     /// Resets the diagnostic error count as well as the cached emitted diagnostics.
     ///
-    /// NOTE: DO NOT call this function from rustc. It is only meant to be called from external
+    /// NOTE: *do not* call this function from rustc. It is only meant to be called from external
     /// tools that want to reuse a `Parser` cleaning the previously emitted diagnostics as well as
     /// the overall count of emitted error diagnostics.
     pub fn reset_err_count(&self) {
@@ -491,13 +511,25 @@ impl Handler {
         DiagnosticBuilder::new(self, Level::Fatal, msg)
     }
 
-    pub fn cancel(&self, err: &mut DiagnosticBuilder) {
+    pub fn cancel(&self, err: &mut DiagnosticBuilder<'_>) {
         err.cancel();
     }
 
     fn panic_if_treat_err_as_bug(&self) {
-        if self.flags.treat_err_as_bug {
-            panic!("encountered error with `-Z treat_err_as_bug");
+        if self.treat_err_as_bug() {
+            let s = match (self.err_count(), self.flags.treat_err_as_bug.unwrap_or(0)) {
+                (0, _) => return,
+                (1, 1) => "aborting due to `-Z treat-err-as-bug=1`".to_string(),
+                (1, _) => return,
+                (count, as_bug) => {
+                    format!(
+                        "aborting after {} errors due to `-Z treat-err-as-bug={}`",
+                        count,
+                        as_bug,
+                    )
+                }
+            };
+            panic!(s);
         }
     }
 
@@ -538,7 +570,7 @@ impl Handler {
         panic!(ExplicitBug);
     }
     pub fn delay_span_bug<S: Into<MultiSpan>>(&self, sp: S, msg: &str) {
-        if self.flags.treat_err_as_bug {
+        if self.treat_err_as_bug() {
             // FIXME: don't abort here if report_delayed_bugs is off
             self.span_bug(sp, msg);
         }
@@ -573,14 +605,14 @@ impl Handler {
         DiagnosticBuilder::new(self, FailureNote, msg).emit()
     }
     pub fn fatal(&self, msg: &str) -> FatalError {
-        if self.flags.treat_err_as_bug {
+        if self.treat_err_as_bug() {
             self.bug(msg);
         }
         DiagnosticBuilder::new(self, Fatal, msg).emit();
         FatalError
     }
     pub fn err(&self, msg: &str) {
-        if self.flags.treat_err_as_bug {
+        if self.treat_err_as_bug() {
             self.bug(msg);
         }
         let mut db = DiagnosticBuilder::new(self, Error, msg);
@@ -589,6 +621,9 @@ impl Handler {
     pub fn warn(&self, msg: &str) {
         let mut db = DiagnosticBuilder::new(self, Warning, msg);
         db.emit();
+    }
+    fn treat_err_as_bug(&self) -> bool {
+        self.flags.treat_err_as_bug.map(|c| self.err_count() >= c).unwrap_or(false)
     }
     pub fn note_without_error(&self, msg: &str) {
         let mut db = DiagnosticBuilder::new(self, Note, msg);
@@ -604,8 +639,8 @@ impl Handler {
     }
 
     fn bump_err_count(&self) {
-        self.panic_if_treat_err_as_bug();
         self.err_count.fetch_add(1, SeqCst);
+        self.panic_if_treat_err_as_bug();
     }
 
     pub fn err_count(&self) -> usize {
@@ -622,6 +657,9 @@ impl Handler {
             1 => "aborting due to previous error".to_string(),
             _ => format!("aborting due to {} previous errors", self.err_count())
         };
+        if self.treat_err_as_bug() {
+            return;
+        }
 
         let _ = self.fatal(&s);
 
@@ -668,7 +706,7 @@ impl Handler {
         let mut db = DiagnosticBuilder::new(self, lvl, msg);
         db.set_span(msp.clone());
         db.emit();
-        if !self.continue_after_error.get() {
+        if !self.continue_after_error.load(SeqCst) {
             self.abort_if_errors();
         }
     }
@@ -679,7 +717,7 @@ impl Handler {
         let mut db = DiagnosticBuilder::new_with_code(self, lvl, Some(code), msg);
         db.set_span(msp.clone());
         db.emit();
-        if !self.continue_after_error.get() {
+        if !self.continue_after_error.load(SeqCst) {
             self.abort_if_errors();
         }
     }
@@ -693,12 +731,12 @@ impl Handler {
         self.taught_diagnostics.borrow_mut().insert(code.clone())
     }
 
-    pub fn force_print_db(&self, mut db: DiagnosticBuilder) {
+    pub fn force_print_db(&self, mut db: DiagnosticBuilder<'_>) {
         self.emitter.borrow_mut().emit(&db);
         db.cancel();
     }
 
-    fn emit_db(&self, db: &DiagnosticBuilder) {
+    fn emit_db(&self, db: &DiagnosticBuilder<'_>) {
         let diagnostic = &**db;
 
         TRACK_DIAGNOSTICS.with(|track_diagnostics| {
@@ -744,7 +782,7 @@ pub enum Level {
 }
 
 impl fmt::Display for Level {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.to_str().fmt(f)
     }
 }

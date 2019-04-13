@@ -1,13 +1,3 @@
-// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Build configuration for Rust's release channels.
 //!
 //! Implements the stable/beta/nightly channel distinctions by setting various
@@ -20,11 +10,10 @@ use std::process::Command;
 
 use build_helper::output;
 
-use Build;
-use config::Config;
+use crate::Build;
 
 // The version number
-pub const CFG_RELEASE_NUM: &str = "1.32.0";
+pub const CFG_RELEASE_NUM: &str = "1.35.0";
 
 pub struct GitInfo {
     inner: Option<Info>,
@@ -37,20 +26,20 @@ struct Info {
 }
 
 impl GitInfo {
-    pub fn new(config: &Config, dir: &Path) -> GitInfo {
+    pub fn new(ignore_git: bool, dir: &Path) -> GitInfo {
         // See if this even begins to look like a git dir
-        if config.ignore_git || !dir.join(".git").exists() {
+        if ignore_git || !dir.join(".git").exists() {
             return GitInfo { inner: None }
         }
 
         // Make sure git commands work
-        let out = Command::new("git")
-                          .arg("rev-parse")
-                          .current_dir(dir)
-                          .output()
-                          .expect("failed to spawn git");
-        if !out.status.success() {
-            return GitInfo { inner: None }
+        match Command::new("git")
+            .arg("rev-parse")
+            .current_dir(dir)
+            .output()
+        {
+            Ok(ref out) if out.status.success() => {}
+            _ => return GitInfo { inner: None },
         }
 
         // Ok, let's scrape some info

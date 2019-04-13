@@ -1,20 +1,10 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! LLVM diagnostic reports.
 
 pub use self::OptimizationDiagnosticKind::*;
 pub use self::Diagnostic::*;
 
 use libc::c_uint;
-use value::Value;
+use crate::value::Value;
 
 use super::{DiagnosticInfo, Twine};
 
@@ -98,7 +88,7 @@ impl OptimizationDiagnostic<'ll> {
 pub struct InlineAsmDiagnostic<'ll> {
     pub cookie: c_uint,
     pub message: &'ll Twine,
-    pub instruction: &'ll Value,
+    pub instruction: Option<&'ll Value>,
 }
 
 impl InlineAsmDiagnostic<'ll> {
@@ -117,7 +107,7 @@ impl InlineAsmDiagnostic<'ll> {
         InlineAsmDiagnostic {
             cookie,
             message: message.unwrap(),
-            instruction: instruction.unwrap(),
+            instruction,
         }
     }
 }

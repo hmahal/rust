@@ -1,16 +1,6 @@
-// Copyright 2017 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-use rustc::ty::subst::Substs;
+use rustc::ty::subst::SubstsRef;
 use rustc::ty::{self, ClosureSubsts, GeneratorSubsts, Ty, TypeFoldable};
-use rustc::mir::{Location, Mir, UserTypeAnnotation};
+use rustc::mir::{Location, Mir};
 use rustc::mir::visit::{MutVisitor, TyContext};
 use rustc::infer::{InferCtxt, NLLRegionVariableOrigin};
 
@@ -57,6 +47,14 @@ impl<'a, 'gcx, 'tcx> NLLVisitor<'a, 'gcx, 'tcx> {
 }
 
 impl<'a, 'gcx, 'tcx> MutVisitor<'tcx> for NLLVisitor<'a, 'gcx, 'tcx> {
+    fn visit_mir(&mut self, mir: &mut Mir<'tcx>) {
+        for promoted in mir.promoted.iter_mut() {
+            self.visit_mir(promoted);
+        }
+
+        self.super_mir(mir);
+    }
+
     fn visit_ty(&mut self, ty: &mut Ty<'tcx>, ty_context: TyContext) {
         debug!("visit_ty(ty={:?}, ty_context={:?})", ty, ty_context);
 
@@ -65,15 +63,7 @@ impl<'a, 'gcx, 'tcx> MutVisitor<'tcx> for NLLVisitor<'a, 'gcx, 'tcx> {
         debug!("visit_ty: ty={:?}", ty);
     }
 
-    fn visit_user_type_annotation(&mut self, _ty: &mut UserTypeAnnotation<'tcx>) {
-        // User type annotations represent the types that the user
-        // wrote in the progarm. We don't want to erase the regions
-        // from these types: rather, we want to add them as
-        // constraints at type-check time.
-        debug!("visit_user_type_annotation: skipping renumber");
-    }
-
-    fn visit_substs(&mut self, substs: &mut &'tcx Substs<'tcx>, location: Location) {
+    fn visit_substs(&mut self, substs: &mut SubstsRef<'tcx>, location: Location) {
         debug!("visit_substs(substs={:?}, location={:?})", substs, location);
 
         *substs = self.renumber_regions(&{ *substs });

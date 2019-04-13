@@ -1,10 +1,10 @@
 error[E0255]: the name `A` is defined multiple times
-  --> $DIR/issue-19498.rs:13:1
+  --> $DIR/issue-19498.rs:3:1
    |
 LL | use self::A;
    |     ------- previous import of the module `A` here
 LL | use self::B;
-LL | mod A {} //~ ERROR the name `A` is defined multiple times
+LL | mod A {}
    | ^^^^^ `A` redefined here
    |
    = note: `A` must be defined only once in the type namespace of this module
@@ -14,12 +14,12 @@ LL | use self::A as OtherA;
    |     ^^^^^^^^^^^^^^^^^
 
 error[E0255]: the name `B` is defined multiple times
-  --> $DIR/issue-19498.rs:15:1
+  --> $DIR/issue-19498.rs:5:1
    |
 LL | use self::B;
    |     ------- previous import of the module `B` here
 ...
-LL | pub mod B {} //~ ERROR the name `B` is defined multiple times
+LL | pub mod B {}
    | ^^^^^^^^^ `B` redefined here
    |
    = note: `B` must be defined only once in the type namespace of this module
@@ -29,11 +29,11 @@ LL | use self::B as OtherB;
    |     ^^^^^^^^^^^^^^^^^
 
 error[E0255]: the name `D` is defined multiple times
-  --> $DIR/issue-19498.rs:19:5
+  --> $DIR/issue-19498.rs:9:5
    |
 LL |     use C::D;
    |         ---- previous import of the module `D` here
-LL |     mod D {} //~ ERROR the name `D` is defined multiple times
+LL |     mod D {}
    |     ^^^^^ `D` redefined here
    |
    = note: `D` must be defined only once in the type namespace of this module
